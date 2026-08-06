@@ -1,0 +1,241 @@
+# System Design — 정합성 검증 · 더미데이터 · PII 마스킹 · 부하테스트
+
+관련: [PRD.md](./PRD.md) | [architecture.md](./architecture.md) | [tech_doc.md](./tech_doc.md) | [task_list.md](./task_list.md)
+
+## 1. 정합성 자기검증(Self-Verification) 설계
+
+300만 건 전체 대상, **재실행 시 동일 결과가 나오는 결정론적** 검증이 요구사항이므로, 시점(`NOW()`)에 의존하는 조건 대신 상태값 자체만으로 판정 가능한 규칙으로 설계한다.
+
+### 1.1 검증 항목별 SQL
+
+**(a) 캠페인별 발급 수량이 재고를 초과하지 않았는가**
+
+```sql
+SELECT c.id AS campaign_id, c.total_stock,
+       COUNT(ci.id) AS issued_count,
+       COUNT(ci.id) > c.total_stock AS over_issued
+FROM campaign c
+LEFT JOIN coupon_issue ci ON ci.campaign_id = c.id
+GROUP BY c.id, c.total_stock
+HAVING over_issued = 1;
+-- 결과 0 rows 여야 함
+```
+> 설계 판단: 재고는 "발급 성공 이벤트" 자체를 카운트한다(취소되어도 재고를 돌려주는 정책이면 net 재고를 별도 컬럼으로 추적). "발급 총량 ≤ 재고"를 불변식으로 정의하고, 취소분 재사용 여부는 캠페인 설정 플래그(`allow_reissue_on_cancel`)로 분리한다.
+
+**(b) 유저당 캠페인별 중복 발급이 없는가**
+
+```sql
+SELECT campaign_id, user_id, COUNT(*) AS cnt
+FROM coupon_issue
+GROUP BY campaign_id, user_id
+HAVING COUNT(*) > 1;
+-- 결과 0 rows 여야 함 (uk_campaign_user 로 원천 불가하지만, 제약 우회 경로 유무를 이중 확인)
+```
+
+**(c) 이력 테이블과 캠페인 카운터가 일치하는가**
+
+```sql
+SELECT c.id AS campaign_id,
+       c.total_stock - c.remaining_stock AS counter_issued,
+       actual.issued_count,
+       (c.total_stock - c.remaining_stock) <> actual.issued_count AS mismatch
+FROM campaign c
+JOIN (
+    SELECT campaign_id, COUNT(*) AS issued_count
+    FROM coupon_issue
+    GROUP BY campaign_id
+) actual ON actual.campaign_id = c.id
+HAVING mismatch = 1;
+-- 결과 0 rows 여야 함. Redis 카운터 전략이면 stock:{campaignId}:remaining 값도 별도 스크립트로 비교
+```
+
+**(d) 상태전이가 유효한가**
+
+```sql
+-- 일반화: 현재 상태로 이어지는 로그가 하나도 없는 레코드 전체 탐지
+SELECT ci.id, ci.status
+FROM coupon_issue ci
+WHERE ci.status <> 'ISSUED'  -- ISSUED는 최초상태이므로 로그 없어도 정상
+  AND NOT EXISTS (
+      SELECT 1 FROM coupon_state_log l
+      WHERE l.coupon_issue_id = ci.id AND l.to_status = ci.status
+  );
+-- 결과 0 rows 여야 함
+
+-- 허용되지 않은 전이가 로그에 기록된 적 있는지 (상태머신 우회 버그 탐지)
+SELECT * FROM coupon_state_log
+WHERE (from_status, to_status) NOT IN (
+    ('ISSUED','USED'), ('ISSUED','CANCELED'), ('ISSUED','EXPIRED'), ('USED','CANCELED')
+);
+-- 결과 0 rows 여야 함
+```
+
+### 1.2 SQL 집계 vs Spring Batch — 둘 다 사용
+
+| 구분 | 용도 | 이유 |
+|---|---|---|
+| **순수 SQL 집계 쿼리(위 4개)** | 개발 중 수시 실행, 부하테스트 직후 즉시 검증 | 인덱스(`campaign_id`, `(campaign_id,user_id)`, `coupon_issue_id`)만 잘 걸리면 300만 건도 수 초~수십 초 내 완결. 별도 배치 인프라 없이 재현 가능. "재실행 시 동일 결과"를 가장 단순하게 증명(같은 쿼리, 같은 데이터 → 같은 결과는 SQL의 기본 속성) |
+| **Spring Batch Job (`ConsistencyVerificationJob`)** | 정식 검증 리포트 생성, CI/데모 시 자동 실행, 결과를 별도 테이블/파일로 영속화 | 4가지 검증을 `Step` 단위(`stockCheckStep`, `duplicateCheckStep`, `counterSyncStep`, `stateTransitionStep`)로 구성, `Chunk` 기반 `JdbcPagingItemReader`로 300만 건을 10,000건씩 페이징하여 읽고, `ItemProcessor`가 위반 여부 판정, `ItemWriter`가 `verification_result` 테이블에 위반 건만 적재. `BatchJobExecution` 메타테이블에 실행 이력이 자동으로 남아 감사 추적 가능 |
+
+**권장**: SQL 집계 쿼리를 1차 진단 도구로, Spring Batch Job을 "정식 자동화된 검증 리포트"로 이원화. MVP는 SQL만으로 요구사항(결정론적, 300만 건 전체, 재실행 동일결과)을 충족하고, Spring Batch는 선택 확장에서 "자동화 리포트"로 격상.
+
+**결정론성 보장 규칙**:
+- 검증 쿼리는 `NOW()`, `CURRENT_TIMESTAMP` 등 실행 시점 의존 조건을 쓰지 않는다.
+- 검증 스크립트는 결과셋을 정렬 후 JSON 직렬화 → SHA-256 해시하여 "이전 실행 해시와 동일한가"로 재실행 동일성을 기계적으로 확인한다.
+
+## 2. 더미데이터 생성 계획
+
+### 2.1 100만 User
+
+- Java 배치 프로그램(초기 1회성 `CommandLineRunner` 또는 별도 `main`)에서 `JdbcTemplate.batchUpdate()`로 1,000~5,000건 단위 배치 INSERT.
+- JPA `saveAll()`은 영속성 컨텍스트 오버헤드가 크므로 지양. `JdbcTemplate` + `rewriteBatchedStatements=true`(MySQL JDBC 드라이버 옵션) 조합 권장. 대안: CSV 사전 생성 후 `LOAD DATA INFILE`.
+- PII 필드(name, phone, email)는 `net.datafaker`(Java Faker)로 랜덤 생성. 가상 데이터이므로 저장 자체는 평문 허용하되, **조회/응답/로그 경계에서만 마스킹**(3절)한다 — 이것이 이 프로젝트의 핵심 실습 포인트.
+
+```java
+List<Object[]> batchArgs = new ArrayList<>(BATCH_SIZE);
+for (int i = 0; i < 1_000_000; i++) {
+    batchArgs.add(new Object[]{ "user" + i, faker.name().fullName(), faker.phoneNumber(), faker.internet().emailAddress() });
+    if (batchArgs.size() == BATCH_SIZE) {
+        jdbcTemplate.batchUpdate(INSERT_SQL, batchArgs);
+        batchArgs.clear();
+    }
+}
+```
+
+### 2.2 300만 발급이력
+
+- 동일한 배치 INSERT 방식. 실제 동시성 로직을 타지 않고 "이미 발급 완료된 것"으로 간주하는 이력.
+- 분포 설계: 캠페인 10~20개 생성, 캠페인별 재고/발급량을 다양하게. **의도적으로 정합성이 깨진 소량 오염 데이터셋**을 별도로 삽입해(예: 특정 캠페인만 `total_stock`보다 1건 더 issued) 검증 배치가 실제로 위반을 탐지하는지 증명하는 데 사용한다.
+- 대량 INSERT 시 FK/유니크 인덱스가 성능을 저해하므로, 적재 시점엔 인덱스 최소화 후 적재 완료 후 인덱스 생성(`ALTER TABLE ... ADD INDEX`) 고려 가능. 단 "생성/적재 속도는 평가 안 함"이므로 과도한 최적화는 우선순위 낮음.
+
+### 2.3 PII 처리 위치
+
+| 위치 | 처리 |
+|---|---|
+| DB 저장(at rest) | 가상 데이터이므로 평문 저장 허용(실습 목적). 구조는 실 서비스처럼 컬럼 분리 |
+| 로그 출력 | 반드시 마스킹 (3절) |
+| API 응답 | 반드시 마스킹 (3절) |
+
+## 3. PII 마스킹 구현 방안
+
+### 3.1 로그 마스킹 — Logback `PatternLayoutEncoder` + 커스텀 `Converter`
+
+```java
+public class PiiMaskingConverter extends ClassicConverter {
+    private static final Pattern PHONE = Pattern.compile("\\d{2,3}-?\\d{3,4}-?\\d{4}");
+    private static final Pattern EMAIL = Pattern.compile("[\\w.-]+@[\\w.-]+");
+
+    @Override
+    public String convert(ILoggingEvent event) {
+        String msg = event.getFormattedMessage();
+        msg = PHONE.matcher(msg).replaceAll(m -> maskPhone(m.group()));
+        msg = EMAIL.matcher(msg).replaceAll(m -> maskEmail(m.group()));
+        return msg;
+    }
+}
+```
+
+`logback-spring.xml`에서 `%mask` 컨버전 워드로 등록. 추가로 `User`/`CouponIssue`의 `toString()`을 오버라이드하여 PII 필드가 로그에 원본으로 찍히지 않도록 한다(`name=김*수, phone=010-****-1234`).
+
+### 3.2 응답 마스킹 — Jackson `@JsonSerialize` 커스텀 시리얼라이저
+
+```java
+public class PhoneMaskingSerializer extends JsonSerializer<String> {
+    @Override
+    public void serialize(String value, JsonGenerator gen, SerializerProvider sp) throws IOException {
+        gen.writeString(value.replaceAll("(\\d{3})-?\\d{3,4}-?(\\d{4})", "$1-****-$2"));
+    }
+}
+
+public class UserResponse {
+    private String loginId;
+    @JsonSerialize(using = PhoneMaskingSerializer.class)
+    private String phone;
+    @JsonSerialize(using = EmailMaskingSerializer.class)
+    private String email;
+    @JsonSerialize(using = NameMaskingSerializer.class)
+    private String name;
+}
+```
+
+DTO 계층에서 마스킹 시리얼라이저를 강제하여, 엔티티가 실수로 그대로 응답에 노출되는 경로를 컨트롤러 반환 타입 레벨에서 차단한다(엔티티를 직접 `@RestController`에서 반환하지 않는 코드 컨벤션 명문화).
+
+## 4. 외부 알림 발송 Mocking
+
+```java
+public interface NotificationSender {
+    void sendCouponIssuedNotification(Long userId, String couponCode);
+}
+
+@Component
+@Profile("!prod")
+public class MockNotificationSender implements NotificationSender {
+    private static final Logger log = LoggerFactory.getLogger(MockNotificationSender.class);
+
+    @Override
+    public void sendCouponIssuedNotification(Long userId, String couponCode) {
+        log.info("[MOCK-NOTIFY] userId={} couponCode={} sentAt={}", maskUserId(userId), couponCode, Instant.now());
+    }
+}
+```
+
+발급 트랜잭션과 알림 발송은 분리(알림 실패가 발급 트랜잭션을 롤백시키면 안 됨) → `@TransactionalEventListener(phase = AFTER_COMMIT)`로 발급 커밋 후 비동기 호출. 부하테스트 시 알림 호출 횟수를 "발급 성공 건수 == 알림 발송 시도 건수" 부가 검증 지표로 활용 가능.
+
+## 5. 부하테스트 계획
+
+### 5.1 시나리오 정의
+
+| 항목 | 값 |
+|---|---|
+| 대상 캠페인 재고 | 10,000 |
+| 동시 요청 유저 수 | 20,000 (서로 다른 user_id — 재고초과와 1인1매를 분리 검증하기 위해 우선 유저 중복 없는 시나리오) |
+| 추가 시나리오 | 동일 유저가 짧은 시간 내 N회 중복 요청(예: 5,000명이 각 4회씩 재요청) → 1인 1매 검증 |
+| 목표 | 성공 응답 수 == 10,000, 재고 초과 없음, DB row 수 == 10,000, 실패 응답(품절)은 명확한 4xx/도메인 에러코드로 구분 |
+
+### 5.2 k6 스크립트 개요
+
+```javascript
+import http from 'k6/http';
+import { check } from 'k6';
+import { SharedArray } from 'k6/data';
+
+const users = new SharedArray('users', function () {
+  return JSON.parse(open('./users_20000.json')); // 사전 생성된 20,000명의 user_id + idempotency_key
+});
+
+export const options = {
+  scenarios: {
+    coupon_race: {
+      executor: 'shared-iterations',
+      vus: 2000,
+      iterations: 20000,   // 총 요청 수 = 재고의 2배
+      maxDuration: '30s',
+    },
+  },
+};
+
+export default function () {
+  const u = users[__ITER];
+  const res = http.post(`${__ENV.BASE_URL}/api/campaigns/1/coupons`, JSON.stringify({}), {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': u.userId,
+      'Idempotency-Key': u.idempotencyKey,
+    },
+  });
+  check(res, {
+    'status is 200 or 409': (r) => r.status === 200 || r.status === 409, // 409 = 품절/이미발급
+  });
+}
+```
+
+### 5.3 성공 판정 지표 (테스트 종료 후 DB로 검증 — k6 자체 지표는 참고용)
+
+```sql
+SELECT COUNT(*) FROM coupon_issue WHERE campaign_id = 1;  -- 기대값: 10000
+SELECT user_id, COUNT(*) FROM coupon_issue WHERE campaign_id = 1 GROUP BY user_id HAVING COUNT(*) > 1; -- 0 rows
+```
+Redis 전략 사용 시 `GET stock:1:remaining` → 기대값 0.
+
+- k6의 `http_req_duration` 등 성능 지표는 참고치로만 리포트에 포함하고, "평가 대상은 정확성"임을 명시.
+- 동일 시나리오를 5회 반복 실행하여 매번 초과발급 0건이 재현되는지 확인(1회성 우연 방지).

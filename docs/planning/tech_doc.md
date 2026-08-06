@@ -1,0 +1,43 @@
+# Tech Doc — 기술 스택 및 테스트 전략
+
+관련: [PRD.md](./PRD.md) | [architecture.md](./architecture.md) | [system_design.md](./system_design.md) | [task_list.md](./task_list.md)
+
+## 1. 기술 스택
+
+| 영역 | 선택 | 비고 |
+|---|---|---|
+| 언어/프레임워크 | Java + Spring Boot (Maven, `mvnw.cmd`) | 팀 확정 |
+| DB | MySQL | 가정 — 팀 회의에서 변경 가능 |
+| 캐시/원자연산 | Redis | 하드닝 단계 동시성 게이트키퍼용 (가정) |
+| 메시지 큐 | Kafka (선택) | Phase 4 선택 확장에서만 검토 |
+| 인프라 | 로컬 Docker Compose (MySQL, Redis, 선택적 Kafka) | 가정 — 클라우드 미지정 |
+| 마이그레이션 | Flyway | `V1__create_core_tables.sql` 기준 |
+| 배치 | Spring Batch | 정합성 검증 Job, 300만 건 chunk 처리 |
+| 재시도 | spring-retry | 낙관적 락 충돌 시 재시도 |
+| 분산락(선택) | Redisson | 전략 (e) 채택 시 |
+| 더미데이터 생성 | JdbcTemplate.batchUpdate + net.datafaker | 100만/300만 건 벌크 적재 |
+| 부하테스트 | k6 (예시, 도구 자유) | 10,000 vs 20,000 동시요청 시나리오 |
+| 테스트 | JUnit5, Testcontainers(MySQL/Redis) | 동시성 통합테스트 포함 |
+
+## 2. 핵심 구현 파일 (그린필드 — 생성 예정 경로)
+
+- `src/main/resources/db/migration/V1__create_core_tables.sql` — User/Campaign/Coupon/CouponIssue/CouponStateLog 스키마 및 unique constraint 정의 (Flyway 기준)
+- `src/main/java/.../coupon/domain/CouponIssue.java` — 상태 머신, `@Version`, idempotency key를 포함한 핵심 엔터티
+- `src/main/java/.../coupon/service/CouponIssueService.java` — 발급/상태전이 트랜잭션 로직, 동시성 전략의 실제 구현 지점
+- `src/main/java/.../batch/ConsistencyVerificationJob.java` — 정합성 검증 Spring Batch Job ([system_design.md](./system_design.md) 1절)
+- `src/test/loadtest/coupon_race.js` — k6 부하테스트 스크립트
+- `docker-compose.yml` — MySQL/Redis/Kafka 로컬 인프라 정의
+
+도메인 모델과 코드 패턴(엔티티/서비스/상태머신) 상세는 [architecture.md](./architecture.md) 참고. 정합성 검증 SQL/Batch, 더미데이터 생성, PII 마스킹, 부하테스트 스크립트 상세는 [system_design.md](./system_design.md) 참고.
+
+## 3. 테스트 전략
+
+| 레벨 | 대상 | 도구 | 핵심 검증 |
+|---|---|---|---|
+| 단위 테스트 | 상태 머신(`CouponStatus.canTransitionTo`), 마스킹 시리얼라이저/컨버터 | JUnit5 | 허용되지 않은 전이가 예외를 던지는가, PII가 정규식대로 마스킹되는가 |
+| 통합 테스트 | 발급 API 동시성(`ExecutorService`로 스레드풀 100~1000개 동시 호출), idempotency key 중복요청 | JUnit5 + `@SpringBootTest` + Testcontainers(MySQL, Redis) | N개 동시요청 중 정확히 재고만큼만 성공하는가, 동일 idempotency key 재요청이 동일 결과를 반환하는가 |
+| 상태전이 동시성 테스트 | 동일 쿠폰에 대해 "사용"과 "취소"를 동시에 호출 | JUnit5 + `CountDownLatch`로 동시 실행 트리거 | 낙관적 락 충돌 시 재시도 후 정확히 하나의 최종 상태로 수렴하는가 |
+| 부하 테스트 | 10,000 vs 20,000 시나리오 | k6 | [system_design.md](./system_design.md) 5절 지표 |
+| 검증 배치 자체 테스트 | 오염 데이터(의도적 위반 샘플)를 심고 검증 쿼리/Job이 정확히 탐지하는가, 정상 데이터에는 false positive 없는가 | JUnit5(소규모 데이터셋) + 실 300만 건 수동 확인 | 결정론성(2회 연속 실행 결과 해시 동일) |
+
+ECC `testing.md` 기준 커버리지 80%+를 목표로 하되, 이 프로젝트는 커버리지 수치보다 **동시성 시나리오 테스트의 실효성**(실제로 경쟁 상황을 재현하는가)이 더 중요한 평가 축임에 유의.
