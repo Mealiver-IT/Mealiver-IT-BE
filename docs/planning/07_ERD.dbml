@@ -44,6 +44,8 @@ Table coupon_issue {
   campaign_id bigint [not null]
   user_id bigint [not null]
   coupon_code varchar [not null, unique, note: '발급된 실물 쿠폰 식별자']
+  discount_type varchar [not null, note: 'ENUM: FIXED, RATE — 발급 시점 스냅샷']
+  discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(02_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
   status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
   idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
   issued_at datetime [not null]
