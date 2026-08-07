@@ -14,8 +14,33 @@ Table user {
   name varchar [not null, note: 'PII - 마스킹 대상']
   phone varchar [not null, note: 'PII - 마스킹 대상']
   email varchar [not null, note: 'PII - 마스킹 대상']
-  membership_tier membership_tier [not null, default: 'PRIVATE', note: '더미데이터 생성 시 가중 랜덤 분포로 직접 부여 (40/30/20/10%)']
+  membership_tier membership_tier [not null, default: 'PRIVATE', note: 'orders 집계 기반 매월 1일 배치 자동 산정 (FR-MBR-001,002). 최초 더미데이터 생성 시점 값은 orders 더미데이터로부터 역산']
+  tier_calculated_at datetime [note: '마지막 계급 재산정 배치 실행 시각']
   created_at datetime [not null, default: `now()`]
+}
+
+Table orders {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  order_amount decimal [not null, note: '상품 금액(할인 전)']
+  paid_amount decimal [not null, note: '결제 금액(할인 후) — 계급 집계 10,000원 기준 컬럼 (FR-MBR-003, 팀 확정: 결제금액 기준)']
+  status varchar [not null, note: 'ENUM: COMPLETED, CANCELED, REFUNDED']
+  ordered_at datetime [not null]
+  completed_at datetime [note: '배달완료 시각. 계급 집계는 status=COMPLETED AND completed_at 기준 캘린더 월로 산정']
+  created_at datetime [not null, default: `now()`]
+
+  indexes {
+    (user_id, status, completed_at) [name: 'idx_orders_tier_calc']
+  }
+}
+
+Table membership_tier_log {
+  id bigint [pk, increment]
+  user_id bigint [not null]
+  from_tier membership_tier
+  to_tier membership_tier [not null]
+  order_count int [not null, note: '해당 배치 산정에 집계된 완료 주문 건수']
+  calculated_at datetime [not null, default: `now()`, note: '배치 실행 시각(매월 1일)']
 }
 
 Table campaign {
@@ -75,3 +100,5 @@ Ref: coupon.campaign_id > campaign.id
 Ref: coupon_issue.campaign_id > campaign.id
 Ref: coupon_issue.user_id > user.id
 Ref: coupon_state_log.coupon_issue_id > coupon_issue.id
+Ref: orders.user_id > user.id
+Ref: membership_tier_log.user_id > user.id
