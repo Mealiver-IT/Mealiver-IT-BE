@@ -1,0 +1,75 @@
+// Mealiver-IT — 선착순 쿠폰 발급 시스템 ERD
+// 02_아키텍처.md 1절 도메인 모델 기준. dbdiagram.io 에 그대로 붙여넣기.
+
+Enum membership_tier {
+  PRIVATE [note: '이등병 (기본값)']
+  PFC [note: '일병']
+  CORPORAL [note: '상병']
+  SERGEANT [note: '병장']
+}
+
+Table user {
+  id bigint [pk, increment]
+  login_id varchar [not null, unique, note: '가상 회원 식별자']
+  name varchar [not null, note: 'PII - 마스킹 대상']
+  phone varchar [not null, note: 'PII - 마스킹 대상']
+  email varchar [not null, note: 'PII - 마스킹 대상']
+  membership_tier membership_tier [not null, default: 'PRIVATE', note: '더미데이터 생성 시 가중 랜덤 분포로 직접 부여 (40/30/20/10%)']
+  created_at datetime [not null, default: `now()`]
+}
+
+Table campaign {
+  id bigint [pk, increment]
+  name varchar [not null]
+  total_stock int [not null, note: '최초 재고, 불변']
+  remaining_stock int [not null, note: '동시성 제어 대상 카운터']
+  open_at datetime [note: '예약 오픈 (선택 확장)']
+  close_at datetime
+  status varchar [not null, note: 'ENUM: READY, OPEN, CLOSED']
+  min_membership_tier membership_tier [note: 'NULL이면 전 회원 대상, 설정 시 회원 전용 쿠폰']
+  version bigint [not null, default: 0, note: '@Version, 낙관적 락 옵션용']
+}
+
+Table coupon {
+  id bigint [pk, increment]
+  campaign_id bigint [not null]
+  discount_type varchar [not null, note: 'ENUM: FIXED, RATE']
+  discount_value decimal [not null]
+  min_order_amount decimal [note: '최소 주문금액 조건부 할인, NULL이면 조건 없음']
+  valid_days int [not null, note: '발급일로부터 유효기간']
+}
+
+Table coupon_issue {
+  id bigint [pk, increment]
+  campaign_id bigint [not null]
+  user_id bigint [not null]
+  coupon_code varchar [not null, unique, note: '발급된 실물 쿠폰 식별자']
+  status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
+  idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
+  issued_at datetime [not null]
+  used_at datetime
+  canceled_at datetime
+  expired_at datetime
+  version bigint [not null, default: 0, note: '@Version, 상태전이 낙관적 락']
+  created_at datetime [not null, default: `now()`]
+  updated_at datetime [not null, default: `now()`]
+
+  indexes {
+    (campaign_id, user_id) [unique, name: 'uk_campaign_user']
+    campaign_id [name: 'idx_ci_campaign']
+  }
+}
+
+Table coupon_state_log {
+  id bigint [pk, increment]
+  coupon_issue_id bigint [not null]
+  from_status varchar
+  to_status varchar [not null]
+  request_id varchar [not null, note: '상태변경 요청 idempotency key']
+  created_at datetime [not null, default: `now()`]
+}
+
+Ref: coupon.campaign_id > campaign.id
+Ref: coupon_issue.campaign_id > campaign.id
+Ref: coupon_issue.user_id > user.id
+Ref: coupon_state_log.coupon_issue_id > coupon_issue.id
