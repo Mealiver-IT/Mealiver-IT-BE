@@ -1,5 +1,5 @@
 // Mealiver-IT — 선착순 쿠폰 발급 시스템 ERD
-// 02_아키텍처.md 1절 도메인 모델 기준. dbdiagram.io 에 그대로 붙여넣기.
+// 04_아키텍처.md 1절 도메인 모델 기준. dbdiagram.io 에 그대로 붙여넣기.
 
 Enum membership_tier {
   PRIVATE [note: '이등병 (기본값)']
@@ -70,7 +70,8 @@ Table coupon_issue {
   user_id bigint [not null]
   coupon_code varchar [not null, unique, note: '발급된 실물 쿠폰 식별자']
   discount_type varchar [not null, note: 'ENUM: FIXED, RATE — 발급 시점 스냅샷']
-  discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(02_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
+  discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(04_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
+  issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(e)가 user.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
   status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
   idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
   issued_at datetime [not null]
