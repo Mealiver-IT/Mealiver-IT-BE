@@ -67,3 +67,6 @@ jobs:
         run: |
           docker compose pull api
           docker compose up -d api
+
+      - name: Clean up dangling images
+        run: docker image prune -f
