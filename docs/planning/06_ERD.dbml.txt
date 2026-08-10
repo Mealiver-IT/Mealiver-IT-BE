@@ -61,6 +61,7 @@ Table coupon {
   discount_type varchar [not null, note: 'ENUM: FIXED, RATE']
   discount_value decimal [not null]
   min_order_amount decimal [note: '최소 주문금액 조건부 할인, NULL이면 조건 없음']
+  max_discount_amount decimal [note: '정률 할인 최대 한도, NULL이면 한도 없음 (FR-CPN-002, 02_기능명세서_개정본 15절)']
   valid_days int [not null, note: '발급일로부터 유효기간']
 }
 
@@ -71,13 +72,15 @@ Table coupon_issue {
   coupon_code varchar [not null, unique, note: '발급된 실물 쿠폰 식별자']
   discount_type varchar [not null, note: 'ENUM: FIXED, RATE — 발급 시점 스냅샷']
   discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(04_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
+  max_discount_amount decimal [note: '발급 시점 한도 스냅샷. discount_value와 동일 원칙 (FR-CPN-002, 02_기능명세서_개정본 15절)']
   issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(e)가 user.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
   status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
   idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
   issued_at datetime [not null]
+  valid_until datetime [not null, note: '만료 마감 시점 스냅샷 = issued_at + coupon.valid_days, 발급 시점에 고정. coupon.valid_days가 나중에 바뀌어도 이미 발급된 건은 불변 (FR-CPS-003)']
   used_at datetime
   canceled_at datetime
-  expired_at datetime
+  expired_at datetime [note: '실제로 EXPIRED 상태로 전이 처리된 시각(이력). valid_until은 마감선, expired_at은 처리 시각으로 서로 다른 값']
   version bigint [not null, default: 0, note: '@Version, 상태전이 낙관적 락']
   created_at datetime [not null, default: `now()`]
   updated_at datetime [not null, default: `now()`]
@@ -95,6 +98,11 @@ Table coupon_state_log {
   to_status varchar [not null]
   request_id varchar [not null, note: '상태변경 요청 idempotency key']
   created_at datetime [not null, default: `now()`]
+
+  indexes {
+    request_id [unique, name: 'uk_state_log_request']
+    (coupon_issue_id, id) [name: 'idx_state_log_coupon_issue']
+  }
 }
 
 Ref: coupon.campaign_id > campaign.id

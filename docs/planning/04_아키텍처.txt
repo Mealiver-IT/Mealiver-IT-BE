@@ -62,9 +62,10 @@ CouponIssue (발급 이력 = 상태 관리 핵심 테이블, 300만 건 대상)
  ├─ status (ENUM: ISSUED, USED, CANCELED, EXPIRED)
  ├─ idempotency_key (VARCHAR, UNIQUE)  -- 발급 요청 중복 방지 키
  ├─ issued_at (DATETIME NOT NULL)
+ ├─ valid_until (DATETIME NOT NULL)    -- 만료 마감 시점 스냅샷 = issued_at + coupon.valid_days. 발급 시점 고정, coupon.valid_days 변경과 무관 (FR-CPS-003)
  ├─ used_at (DATETIME NULL)
  ├─ canceled_at (DATETIME NULL)
- ├─ expired_at (DATETIME NULL)
+ ├─ expired_at (DATETIME NULL)         -- EXPIRED로 실제 전이 처리된 시각(이력). valid_until(마감선)과는 다른 값
  ├─ version (BIGINT NOT NULL DEFAULT 0)  -- @Version, 상태전이 낙관적 락
  └─ created_at / updated_at
 
@@ -73,7 +74,7 @@ CouponStateLog (상태전이 감사로그 — 검증 배치가 "이력 vs 카운
  ├─ coupon_issue_id (FK)
  ├─ from_status
  ├─ to_status
- ├─ request_id (VARCHAR)   -- 상태변경 요청의 idempotency key
+ ├─ request_id (VARCHAR, UNIQUE)   -- 상태변경 요청의 idempotency key. 유니크 제약이 FR-CPS-005 멱등성의 최종 방어선(uk_state_log_request)
  └─ created_at
 ```
 
@@ -96,6 +97,11 @@ ALTER TABLE coupon_issue
 
 -- 상태전이 동시 중복요청에 대한 낙관적 락
 ALTER TABLE coupon_issue ADD COLUMN version BIGINT NOT NULL DEFAULT 0;
+
+-- 상태전이 요청의 멱등성 최종 방어선 (FR-CPS-005): 동일 request_id 재시도/중복 요청이
+-- 두 번째 상태전이 로그로 남는 것을 DB가 물리적으로 거부한다
+ALTER TABLE coupon_state_log
+  ADD CONSTRAINT uk_state_log_request UNIQUE (request_id);
 ```
 
 `uk_campaign_user`가 핵심이다. 애플리케이션 레벨 동시성 제어(Redis, Lua, 분산락 등)가 버그로 뚫리더라도, 이 유니크 제약이 있으면 **DB가 물리적으로 2번째 INSERT를 거부**한다. 재고 초과(수량 초과) 자체는 이 제약만으로는 못 막으므로 아래 3절의 전략이 필요하지만, "1인 1매"는 이 제약 하나로 100% 보장된다.
