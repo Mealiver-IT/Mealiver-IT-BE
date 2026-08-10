@@ -5,7 +5,9 @@
 ## 1. 도메인 모델
 
 ```
-User (mock, 회원가입/로그인 없음)
+User (mock, 회원가입/로그인 없음) — 엔티티/클래스명은 User, DB 테이블명은 users
+ (MySQL 예약어 회피 — USER는 MySQL 예약어라 그대로 쓰면 모든 raw SQL에서 백틱 이스케이프가 강제됨.
+  이미 orders를 order 대신 복수형으로 쓴 것과 같은 이유. @Table(name = "users")로 매핑)
  ├─ id (PK, BIGINT)
  ├─ login_id (VARCHAR, UNIQUE) -- 가상 식별자
  ├─ name (VARCHAR)            -- PII, 마스킹 대상
@@ -49,7 +51,8 @@ Coupon (캠페인이 발급하는 쿠폰 정책 마스터. 캠페인:쿠폰 1:1�
  ├─ discount_type (ENUM: FIXED, RATE)
  ├─ discount_value (DECIMAL)   -- RATE 타입 + 계급별 차등 캠페인의 경우 기본값(이등병/일병 기준). 실제 적용률은 TierDiscountPolicy(6절) 참고
  ├─ min_order_amount (DECIMAL, NULLABLE)  -- 최소 주문금액 조건부 할인 (NULL이면 조건 없음)
- └─ valid_days (INT)           -- 발급일로부터 유효기간
+ ├─ max_discount_amount (DECIMAL, NULLABLE)  -- 정률 할인 최대 한도, NULL이면 한도 없음 (FR-CPN-002)
+ └─ valid_hours (INT)          -- 발급 시점(issued_at)으로부터 유효 시간(시간 단위). 하루 미만 쿠폰도 표현하려고 일 단위 대신 시간 단위 사용. 반드시 1 이상
 
 CouponIssue (발급 이력 = 상태 관리 핵심 테이블, 300만 건 대상)
  ├─ id (PK, BIGINT, AUTO_INCREMENT)
@@ -58,11 +61,12 @@ CouponIssue (발급 이력 = 상태 관리 핵심 테이블, 300만 건 대상)
  ├─ coupon_code (VARCHAR, UNIQUE)      -- 발급된 실물 쿠폰 식별자
  ├─ discount_type (ENUM: FIXED, RATE)  -- 발급 시점 스냅샷
  ├─ discount_value (DECIMAL)           -- 발급 시점 계급으로 확정된 실제 할인율/금액 스냅샷. 이후 유저 계급이 바뀌어도 이 값은 불변(FR-FCFS-002)
+ ├─ max_discount_amount (DECIMAL, NULLABLE)  -- 발급 시점 한도 스냅샷. discount_value와 동일 원칙 (FR-CPN-002)
  ├─ issued_membership_tier (ENUM)      -- 발급 시점 유저 계급 스냅샷. eligibility 검증쿼리(e)가 현재 계급이 아닌 이 값을 기준으로 판정해야 계급 재산정 후에도 false positive가 없음 (05_시스템설계.md 1.1 (e) 참고)
  ├─ status (ENUM: ISSUED, USED, CANCELED, EXPIRED)
  ├─ idempotency_key (VARCHAR, UNIQUE)  -- 발급 요청 중복 방지 키
  ├─ issued_at (DATETIME NOT NULL)
- ├─ valid_until (DATETIME NOT NULL)    -- 만료 마감 시점 스냅샷 = issued_at + coupon.valid_days. 발급 시점 고정, coupon.valid_days 변경과 무관 (FR-CPS-003)
+ ├─ valid_until (DATETIME NOT NULL)    -- 만료 마감 시점 스냅샷 = issued_at + coupon.valid_hours. 발급 시점 고정, coupon.valid_hours 변경과 무관 (FR-CPS-003)
  ├─ used_at (DATETIME NULL)
  ├─ canceled_at (DATETIME NULL)
  ├─ expired_at (DATETIME NULL)         -- EXPIRED로 실제 전이 처리된 시각(이력). valid_until(마감선)과는 다른 값
@@ -302,4 +306,4 @@ public class TierDiscountPolicy {
 
 ### 6.2 계급 산정 배치 — `MembershipTierBatchJob`
 
-`user.membership_tier`는 더 이상 고정값이 아니라 `orders`(1절 도메인 모델) 집계로 매월 1일 재산정되는 파생값이다. 산정 규칙(완료 주문 건수 구간, 결제금액 10,000원 기준, 캘린더 월 윈도우)은 [09_기획서.md](./09_기획서.txt) 6.2절 참고. 배치는 `MembershipTierLog`에 `from_tier`/`to_tier`/`order_count`를 남겨 재실행 시 동일 결과가 나오는지 감사할 수 있게 한다(재산정 SQL/배치 구조 상세는 [05_시스템설계.md](./05_시스템설계.txt) 참고). 이 배치는 발급 동시성 전략(4절)과 독립적으로 동작하며, 계급 값 자체는 5.1절에서 조회 시점 스냅샷으로만 사용되므로 배치 타이밍이 발급 트랜잭션에 락 경합을 유발하지 않는다.
+`users.membership_tier`는 더 이상 고정값이 아니라 `orders`(1절 도메인 모델) 집계로 매월 1일 재산정되는 파생값이다. 산정 규칙(완료 주문 건수 구간, 결제금액 10,000원 기준, 캘린더 월 윈도우)은 [09_기획서.md](./09_기획서.txt) 6.2절 참고. 배치는 `MembershipTierLog`에 `from_tier`/`to_tier`/`order_count`를 남겨 재실행 시 동일 결과가 나오는지 감사할 수 있게 한다(재산정 SQL/배치 구조 상세는 [05_시스템설계.md](./05_시스템설계.txt) 참고). 이 배치는 발급 동시성 전략(4절)과 독립적으로 동작하며, 계급 값 자체는 5.1절에서 조회 시점 스냅샷으로만 사용되므로 배치 타이밍이 발급 트랜잭션에 락 경합을 유발하지 않는다.

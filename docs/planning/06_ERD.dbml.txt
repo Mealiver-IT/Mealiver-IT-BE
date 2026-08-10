@@ -8,7 +8,7 @@ Enum membership_tier {
   SERGEANT [note: '병장']
 }
 
-Table user {
+Table users {
   id bigint [pk, increment]
   login_id varchar [not null, unique, note: '가상 회원 식별자']
   name varchar [not null, note: 'PII - 마스킹 대상']
@@ -62,7 +62,7 @@ Table coupon {
   discount_value decimal [not null]
   min_order_amount decimal [note: '최소 주문금액 조건부 할인, NULL이면 조건 없음']
   max_discount_amount decimal [note: '정률 할인 최대 한도, NULL이면 한도 없음 (FR-CPN-002, 02_기능명세서_개정본 15절)']
-  valid_days int [not null, note: '발급일로부터 유효기간']
+  valid_hours int [not null, note: '발급 시점(issued_at)으로부터 유효 시간(시간 단위). 하루 미만(당일 한정 등) 쿠폰도 표현하기 위해 일 단위 대신 시간 단위 사용. 반드시 1 이상 — 0이면 발급 즉시 만료된 죽은 쿠폰이 나감']
 }
 
 Table coupon_issue {
@@ -73,11 +73,11 @@ Table coupon_issue {
   discount_type varchar [not null, note: 'ENUM: FIXED, RATE — 발급 시점 스냅샷']
   discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(04_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
   max_discount_amount decimal [note: '발급 시점 한도 스냅샷. discount_value와 동일 원칙 (FR-CPN-002, 02_기능명세서_개정본 15절)']
-  issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(e)가 user.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
+  issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(e)가 users.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
   status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
   idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
   issued_at datetime [not null]
-  valid_until datetime [not null, note: '만료 마감 시점 스냅샷 = issued_at + coupon.valid_days, 발급 시점에 고정. coupon.valid_days가 나중에 바뀌어도 이미 발급된 건은 불변 (FR-CPS-003)']
+  valid_until datetime [not null, note: '만료 마감 시점 스냅샷 = issued_at + coupon.valid_hours, 발급 시점에 고정. coupon.valid_hours가 나중에 바뀌어도 이미 발급된 건은 불변 (FR-CPS-003)']
   used_at datetime
   canceled_at datetime
   expired_at datetime [note: '실제로 EXPIRED 상태로 전이 처리된 시각(이력). valid_until은 마감선, expired_at은 처리 시각으로 서로 다른 값']
@@ -107,7 +107,7 @@ Table coupon_state_log {
 
 Ref: coupon.campaign_id > campaign.id
 Ref: coupon_issue.campaign_id > campaign.id
-Ref: coupon_issue.user_id > user.id
+Ref: coupon_issue.user_id > users.id
 Ref: coupon_state_log.coupon_issue_id > coupon_issue.id
-Ref: orders.user_id > user.id
-Ref: membership_tier_log.user_id > user.id
+Ref: orders.user_id > users.id
+Ref: membership_tier_log.user_id > users.id

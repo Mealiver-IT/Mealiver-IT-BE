@@ -105,7 +105,7 @@ WHERE c.min_membership_tier IS NOT NULL
 ORDER BY ci.id;
 -- 결과 0 rows 여야 함. FIELD()로 등급 순서를 정수 인덱스처럼 비교(PRIVATE=1 < ... < SERGEANT=4)
 ```
-> ⚠️ **`user.membership_tier`(현재 계급)와 비교하면 안 된다.** 계급은 `MembershipTierBatchJob`이 매월 재산정하는 **변동값**이므로, 발급 당시 병장이었다가 이후 상병으로 강등된 유저가 **정상 발급인데도 위반으로 잡히는 false positive**가 발생한다. 검증 결과가 배치 실행 시점에 따라 달라지므로 결정론성 규칙((f)의 `NOW()` 금지와 동일한 문제)도 함께 깨진다.
+> ⚠️ **`users.membership_tier`(현재 계급)와 비교하면 안 된다.** 계급은 `MembershipTierBatchJob`이 매월 재산정하는 **변동값**이므로, 발급 당시 병장이었다가 이후 상병으로 강등된 유저가 **정상 발급인데도 위반으로 잡히는 false positive**가 발생한다. 검증 결과가 배치 실행 시점에 따라 달라지므로 결정론성 규칙((f)의 `NOW()` 금지와 동일한 문제)도 함께 깨진다.
 >
 > 해결: `coupon_issue`에 **발급 시점 계급 스냅샷 컬럼 `issued_membership_tier`를 추가**한다([04_아키텍처.md](./04_아키텍처.txt) 1절). 이미 `discount_type`/`discount_value`를 같은 이유로 스냅샷하고 있으므로 기존 패턴의 확장이며, 컬럼 1개 추가로 끝난다.
 
@@ -123,7 +123,7 @@ SELECT * FROM (
              WHEN COALESCE(computed.order_count, 0) >= 3  THEN 'PFC'
              ELSE 'PRIVATE'
            END AS expected_tier
-    FROM user u
+    FROM users u
     LEFT JOIN (
         SELECT user_id, COUNT(*) AS order_count
         FROM orders
@@ -149,7 +149,7 @@ ORDER BY t.user_id;
 
 **결정론성 보장 규칙**:
 - 검증 쿼리는 `NOW()`, `CURRENT_TIMESTAMP` 등 실행 시점 의존 조건을 쓰지 않는다.
-- **시간에 따라 변하는 값(`user.membership_tier` 등)과 비교하지 않고, 발급 시점 스냅샷 컬럼과 비교한다.** `NOW()` 금지와 같은 원칙의 다른 표현 — 조건절에 시각이 없어도 **참조 대상이 변동값이면 결과는 실행 시점에 따라 달라진다**((e) 참고).
+- **시간에 따라 변하는 값(`users.membership_tier` 등)과 비교하지 않고, 발급 시점 스냅샷 컬럼과 비교한다.** `NOW()` 금지와 같은 원칙의 다른 표현 — 조건절에 시각이 없어도 **참조 대상이 변동값이면 결과는 실행 시점에 따라 달라진다**((e) 참고).
 - **모든 검증 쿼리에 `ORDER BY`를 명시한다.** SQL은 `ORDER BY` 없이는 행 순서를 보장하지 않으므로, 같은 데이터에서도 실행 계획/버퍼 상태에 따라 순서가 뒤바뀌어 **결과 해시가 달라질 수 있다.** 스크립트에서 정렬하더라도 SQL 레벨에서 고정해 두는 편이 안전하다.
 - **탐지 누락(false negative)을 만드는 `INNER JOIN`을 쓰지 않는다.** 위반 케이스는 대개 "있어야 할 행이 없는" 형태로 나타나는데, `INNER JOIN`은 정확히 그 행을 결과에서 제거한다((c)(f) 참고).
 - 검증 스크립트는 결과셋을 정렬 후 JSON 직렬화 → SHA-256 해시하여 "이전 실행 해시와 동일한가"로 재실행 동일성을 기계적으로 확인한다.
@@ -178,7 +178,7 @@ for (int i = 0; i < 1_000_000; i++) {
 
 - 목표 계급 분포(이등병 40% / 일병 30% / 상병 20% / 병장 10%, [09_기획서.md](./09_기획서.txt) 6.2절)를 역산해 유저 그룹별로 다른 건수의 `orders`를 생성한다 — 예: 이등병 그룹은 유저당 0~2건, 일병 3~10건, 상병 11~30건, 병장 31~45건(상한은 임의) 식으로 구간 내 랜덤. 전부 `status=COMPLETED`, `paid_amount>=10000`으로 채우면 단순 계산상 유저 100만 명 기준 **약 1,000만 건 안팎**(CANCELED/REFUNDED나 10,000원 미만 건까지 섞으면 더 늘어남) — 300만 발급이력과는 별개의 물량이므로 일정에 별도 반영([일정과역할.md](./일정과역할.txt)).
 - 볼륨이 크므로 2.1절과 동일하게 `JdbcTemplate.batchUpdate()` 대량 INSERT 방식을 그대로 재사용한다. "생성/적재 속도는 평가 안 함"이라 정확한 상한을 맞추기보다 구간별 목표 건수만 지키면 충분하다.
-- 생성 완료 후 `MembershipTierBatchJob`을 1회 실행해 `user.membership_tier`/`tier_calculated_at`을 채우고 `membership_tier_log`에 최초 산정 이력을 남긴다.
+- 생성 완료 후 `MembershipTierBatchJob`을 1회 실행해 `users.membership_tier`/`tier_calculated_at`을 채우고 `membership_tier_log`에 최초 산정 이력을 남긴다.
 
 ### 2.3 300만 발급이력
 
