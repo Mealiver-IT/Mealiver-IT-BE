@@ -1,6 +1,6 @@
 # Dev Standards — 코딩 표준 · 보안 체크리스트 · TDD/검증 루프
 
-관련: [01_기획서.md](./01_기획서.md) | [02_아키텍처.md](./02_아키텍처.md) | [03_시스템설계.md](./03_시스템설계.md) | [04_기술문서.md](./04_기술문서.md) | [06_일정과역할.md](./06_일정과역할.md)
+관련: [09_기획서.md](./09_기획서.txt) | [04_아키텍처.md](./04_아키텍처.txt) | [05_시스템설계.md](./05_시스템설계.txt) | [10_기술문서.md](./10_기술문서.txt) | [일정과역할.md](./일정과역할.txt)
 
 **출처**: [ECC](https://github.com/affaan-m/ECC) `skills/java-coding-standards`, `springboot-patterns`, `springboot-security`, `springboot-tdd`, `springboot-verification`, `jpa-patterns`를 이 프로젝트(쿠폰 발급 시스템)에 맞게 발췌·재구성. 평가 비대상 항목(처리속도, 도구선택)과 이 프로젝트에 없는 스택(Kafka는 Phase4 선택, 인증/로그인, 블록체인, Next.js 등)은 제외했다.
 
@@ -10,8 +10,8 @@
 - 컨트롤러는 `*Controller`, 불변 데이터는 `record`(DTO), 엔티티는 `final` 필드 + getter만
 - **생성자 주입만 사용, `@Autowired` 필드 주입 금지**
 - `Optional`은 `find*` 메서드 반환에만, `get()` 대신 `map/orElseThrow`
-- 도메인 예외는 언체크로 분리 정의 (`SoldOutException`, `InvalidStateTransitionException` — [02_아키텍처.md](./02_아키텍처.md) 5절과 일치)
-- 패키지 구조 ([04_기술문서.md](./04_기술문서.md) 2절 경로와 일치):
+- 도메인 예외는 언체크로 분리 정의 (`SoldOutException`, `InvalidStateTransitionException` — [04_아키텍처.md](./04_아키텍처.txt) 5절과 일치)
+- 패키지 구조 ([10_기술문서.md](./10_기술문서.txt) 2절 경로와 일치):
 
 ```
 com.mealiverit.coupon/
@@ -26,7 +26,7 @@ com.mealiverit.coupon/
 
 ## 2. Spring Boot API 패턴
 
-- 계층: Controller(얇게) → Service(`@Transactional`) → Repository. 컨트롤러에서 엔티티 직접 반환 금지, 항상 DTO 경유([03_시스템설계.md](./03_시스템설계.md) 3.2절 PII 마스킹과 동일한 이유)
+- 계층: Controller(얇게) → Service(`@Transactional`) → Repository. 컨트롤러에서 엔티티 직접 반환 금지, 항상 DTO 경유([05_시스템설계.md](./05_시스템설계.txt) 3.2절 PII 마스킹과 동일한 이유)
 - 요청 DTO는 Bean Validation(`@Valid`, `@NotBlank`, `@NotNull`) 필수
 - 전역 예외 처리는 `@RestControllerAdvice` 하나로 통일 (`SoldOutException`→409, `InvalidStateTransitionException`→409, validation→400)
 - 읽기 전용 쿼리는 `@Transactional(readOnly = true)`
@@ -37,8 +37,8 @@ com.mealiverit.coupon/
 이 프로젝트에서 실제로 의미 있는 항목만 채택:
 
 - [ ] **DB 자격증명**: `100.125.247.64:3306` 접속 정보는 `application.properties`에 하드코딩 금지 → 환경변수(`DB_URL`, `DB_USER`, `DB_PASSWORD`)로 주입
-- [ ] **SQL Injection**: [03_시스템설계.md](./03_시스템설계.md) 1절 검증 쿼리·Spring Batch native query는 반드시 파라미터 바인딩(`:param`), 문자열 연결 금지
-- [ ] **PII 마스킹**: 로그/응답 경로 모두 마스킹 컨버터·시리얼라이저 경유 확인 (FR-06, [03_시스템설계.md](./03_시스템설계.md) 3절)
+- [ ] **SQL Injection**: [05_시스템설계.md](./05_시스템설계.txt) 1절 검증 쿼리·Spring Batch native query는 반드시 파라미터 바인딩(`:param`), 문자열 연결 금지
+- [ ] **PII 마스킹**: 로그/응답 경로 모두 마스킹 컨버터·시리얼라이저 경유 확인 (FR-06, [05_시스템설계.md](./05_시스템설계.txt) 3절)
 - [ ] **에러 응답**: `e.getMessage()`나 스택트레이스를 API 응답에 그대로 노출하지 않음 — 도메인 에러코드로 매핑
 - [ ] **로그**: `System.out.println` 대신 SLF4J, 발급/상태전이 로그에 원본 PII 없는지 확인
 - [ ] **Idempotency key 노출**: 발급 요청 실패 응답에도 idempotency key 재사용 가능하도록 일관된 응답 반환(재시도 유도)
@@ -58,7 +58,7 @@ public class CouponIssue {
   private Long id;
 
   @Version
-  private Long version; // 상태전이 낙관적 락 ( 02_아키텍처.md 3~5절 )
+  private Long version; // 상태전이 낙관적 락 ( 04_아키텍처.md 3~5절 )
   // ...
 }
 ```
@@ -78,7 +78,7 @@ public interface CampaignRepository extends JpaRepository<CampaignEntity, Long> 
 
 ## 5. TDD 워크플로우 (JUnit5 + Mockito + MockMvc + Testcontainers)
 
-순서: 실패하는 테스트 작성 → 최소 구현 → 리팩터링 → 커버리지 확인(JaCoCo 80%+, [04_기술문서.md](./04_기술문서.md) 3절과 동일 기준이나 이 프로젝트는 **동시성 시나리오 재현성이 커버리지 수치보다 우선**).
+순서: 실패하는 테스트 작성 → 최소 구현 → 리팩터링 → 커버리지 확인(JaCoCo 80%+, [10_기술문서.md](./10_기술문서.txt) 3절과 동일 기준이나 이 프로젝트는 **동시성 시나리오 재현성이 커버리지 수치보다 우선**).
 
 ```java
 @ExtendWith(MockitoExtension.class)
@@ -113,7 +113,7 @@ class CouponIssueRepositoryTest {
 }
 ```
 
-동시성 통합테스트는 [04_기술문서.md](./04_기술문서.md) 3절 표 그대로 유지(`ExecutorService` 100~1000 동시 호출, `CountDownLatch` 기반 상태전이 경쟁 테스트). Testcontainers는 MySQL/Redis 모두 사용.
+동시성 통합테스트는 [10_기술문서.md](./10_기술문서.txt) 3절 표 그대로 유지(`ExecutorService` 100~1000 동시 호출, `CountDownLatch` 기반 상태전이 경쟁 테스트). Testcontainers는 MySQL/Redis 모두 사용.
 
 ### 5.1 회원 전용 쿠폰 테스트 (예: 병장 전용 캠페인)
 
@@ -156,7 +156,7 @@ void 등급미달_동시요청_전부거부() throws InterruptedException {
 }
 ```
 
-3) 사후 검증(실제 더미데이터 300만 건 기준): [03_시스템설계.md](./03_시스템설계.md) 1.1절 (e) 쿼리 실행 — 등급 미달 유저에게 발급된 row가 0건인지 확인. 병장 전용 캠페인은 재고를 병장 티어 더미 유저 수(약 10만 명, [01_기획서.md](./01_기획서.md) 6.2절 비중 기준)보다 작게 잡아야(예: 500장) 선착순 초과발급 여부도 같은 캠페인에서 함께 시연 가능.
+3) 사후 검증(실제 더미데이터 300만 건 기준): [05_시스템설계.md](./05_시스템설계.txt) 1.1절 (e) 쿼리 실행 — 등급 미달 유저에게 발급된 row가 0건인지 확인. 병장 전용 캠페인은 재고를 병장 티어 더미 유저 수(약 10만 명, [09_기획서.md](./09_기획서.txt) 6.2절 비중 기준)보다 작게 잡아야(예: 500장) 선착순 초과발급 여부도 같은 캠페인에서 함께 시연 가능.
 
 ## 6. 검증 루프 (PR·데모 전 실행)
 
@@ -166,7 +166,7 @@ void 등급미달_동시요청_전부거부() throws InterruptedException {
 3) 보안 스캔(grep) grep -rn "password\s*=\s*\"" src/ --include="*.properties" --include="*.java"
                   grep -rn "System\.out\.print" src/main/
                   grep -rn "e\.getMessage()" src/main/
-4) 정합성 검증    03_시스템설계.md 1절 SQL 6종 수동 실행 (MVP), Batch Job (하드닝)
+4) 정합성 검증    05_시스템설계.md 1절 SQL 6종 수동 실행 (MVP), Batch Job (하드닝)
 5) diff 리뷰      git diff --stat && git diff
 ```
 
@@ -181,4 +181,4 @@ Security:  PASS/FAIL (grep 발견 N건)
 Overall:   READY / NOT READY
 ```
 
-Phase 1~3 각 단계의 "데모" 완료 기준([06_일정과역할.md](./06_일정과역할.md))과 이 체크리스트를 함께 통과해야 해당 Phase를 완료로 간주한다.
+Phase 1~3 각 단계의 "데모" 완료 기준([일정과역할.md](./일정과역할.txt))과 이 체크리스트를 함께 통과해야 해당 Phase를 완료로 간주한다.
