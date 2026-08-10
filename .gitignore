@@ -16,3 +16,7 @@ application-local.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# 더미데이터 시더 산출물 (소스 아님, 커밋 금지)
+users_20000.json
+*.json.seed
