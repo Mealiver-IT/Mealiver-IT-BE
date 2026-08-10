@@ -161,7 +161,7 @@ v1에는 이 영역이 통째로 없었다.
 |---|---|---|---|---|---|
 | FR-CPS-001 | 쿠폰 사용 처리 | 상 | G1 | 결제 시 쿠폰을 사용 처리한다. ISSUED → USED 전이, used_at 기록 | 조건부 UPDATE(`WHERE status='ISSUED'`)로 처리해 동시 요청 중 하나만 성공시킨다 |
 | FR-CPS-002 | 쿠폰 취소 처리 | 상 | G1 | 주문 취소/환불 시 쿠폰을 취소 처리한다. ISSUED → CANCELED, USED → CANCELED 전이, canceled_at 기록 | **취소해도 재고는 복구하지 않는다**(allow_reissue_on_cancel = false). 재고는 발급 이벤트 기준 단조감소. 01_설계보완검토안 3절 |
-| FR-CPS-003 | 쿠폰 만료 처리 | 상 | G2 | coupon_issue.valid_until(발급 시점 스냅샷 = issued_at + coupon.valid_hours) 경과 쿠폰을 만료 처리한다. ISSUED → EXPIRED, expired_at 기록 | 배치 또는 조회 시점 판정 방식 중 택1. 어느 쪽이든 검증 쿼리가 NOW()에 의존하지 않도록 expired_at을 실제 컬럼으로 기록할 것(FR-VRF-002의 결정론성 요구). valid_until을 스냅샷 컬럼으로 둔 이유는 discount_value 등과 동일 — coupon.valid_hours가 나중에 바뀌어도 이미 발급된 건의 마감일은 불변이어야 하기 때문(06_ERD 반영됨) |
+| FR-CPS-003 | 쿠폰 만료 처리 | 상 | G2 | coupon_issue.valid_until(발급 시점 스냅샷 = issued_at + coupon.valid_hours) 경과 쿠폰을 만료 처리한다. ISSUED → EXPIRED, expired_at 기록 | **배치 방식으로 확정(팀 결정)** — `@Scheduled` 배치가 `idx_ci_status_valid_until` 인덱스로 `status='ISSUED' AND valid_until < NOW()` 대상을 찾아 UPDATE하고, 동시에 `coupon_state_log`에 ISSUED→EXPIRED 로그를 남긴다(request_id는 배치가 직접 생성 — uk_state_log_request 제약 때문에 필수). 조회 시점 가상판정은 기각 — 로그가 안 남아 FR-VRF-001 (d) 체인 검증이 성립하지 않음. 검증 쿼리가 NOW()에 의존하지 않도록 expired_at을 실제 컬럼으로 기록(FR-VRF-002의 결정론성 요구). valid_until을 스냅샷 컬럼으로 둔 이유는 discount_value 등과 동일 — coupon.valid_hours가 나중에 바뀌어도 이미 발급된 건의 마감일은 불변이어야 하기 때문(06_ERD 반영됨). 상세 설계는 04_아키텍처 3절 |
 | FR-CPS-004 | 상태 전이 규칙 강제 | 상 | G1 | 허용 전이만 수행하고 그 외는 거부한다. 허용: ISSUED→USED, ISSUED→CANCELED, ISSUED→EXPIRED, USED→CANCELED. CANCELED와 EXPIRED는 종단 상태 | CouponStatus enum의 canTransitionTo()로 구현. 04_아키텍처 3절 |
 | FR-CPS-005 | 상태 전이 멱등성 | 상 | G2 | 동일 request_id의 상태 변경 요청이 반복·동시에 들어와도 정확히 1회만 반영하고 동일 결과를 반환한다 | coupon_state_log.request_id 유니크 제약 + coupon_issue.version(@Version) 낙관적 락. 충돌 시 spring-retry로 재시도 후 최신 상태 기준 재판정. 04_아키텍처 5.2절 |
 | FR-CPS-006 | 상태 전이 감사 로그 | 상 | G2 | 모든 상태 전이를 coupon_state_log에 append-only로 기록한다(coupon_issue_id, from_status, to_status, request_id, created_at) | 정합성 검증이 "이력 vs 현재 상태"를 대조할 근거 데이터. 이 로그가 없으면 FR-VRF-001의 (d) 검증이 불가능하다 |
@@ -238,8 +238,7 @@ v1에는 이 영역이 통째로 없었다.
       단 FR-FCFS-020의 "중복 판정과 재고 차감의 원자적 결합" 요구를 문자 그대로
       만족시키려면 Lua가 필요하다는 점을 판단 근거에 포함할 것
 
-  [ ] 쿠폰 만료 판정 방식 — FR-CPS-003
-      배치 방식 vs 조회 시점 판정. 어느 쪽이든 expired_at을 실제 컬럼으로 기록
+  [x] 쿠폰 만료 판정 방식 — FR-CPS-003 ✅ 결정됨: 배치 방식(@Scheduled). 상세는 FR-CPS-003 행, 04_아키텍처 3절 참고
 
   [ ] 에러코드 체계 전체 목록 — FR-FCFS-031
       D1 계약의 날에 확정 (07_실행계획 4절)

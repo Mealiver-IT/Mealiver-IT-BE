@@ -88,6 +88,7 @@ Table coupon_issue {
   indexes {
     (campaign_id, user_id) [unique, name: 'uk_campaign_user']
     campaign_id [name: 'idx_ci_campaign']
+    (status, valid_until) [name: 'idx_ci_status_valid_until', note: '만료 배치가 WHERE status=ISSUED AND valid_until < NOW()로 스캔할 때 사용. 없으면 300만 건 풀스캔']
   }
 }
 
