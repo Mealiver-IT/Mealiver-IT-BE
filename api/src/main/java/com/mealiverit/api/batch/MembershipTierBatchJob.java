@@ -70,14 +70,12 @@ public class MembershipTierBatchJob {
         LocalDateTime monthEndExclusive = targetMonth.plusMonths(1).atDay(1).atStartOfDay();
         LocalDateTime runAt = LocalDateTime.now();
 
-        List<UserTierRow> rows = jdbcTemplate.query(
-            SELECT_SQL,
-            ps -> {
-                ps.setObject(1, monthStart);
-                ps.setObject(2, monthEndExclusive);
-            },
-            rowMapper()
-        );
+        // ⚠️ 예전엔 PreparedStatementSetter 람다로 ps.setObject(idx, LocalDateTime)를 직접 호출했는데,
+        // 이 방식이 실사용 중 completed_at 윈도우를 제대로 못 태워서 CORPORAL/SERGEANT가 아예 안 잡히는
+        // 버그가 있었다(원시 SQL로 같은 조건 넣으면 정상 카운트됨 — 드라이버가 LocalDateTime을 2-인자
+        // setObject로 넘길 때 타입 추론이 어긋난 걸로 추정). OrderSeedRunner의 INSERT(batchUpdate)가 쓰는
+        // 것과 같은, 검증된 스프링 파라미터 바인딩 경로(query(sql, rowMapper, args...))로 교체.
+        List<UserTierRow> rows = jdbcTemplate.query(SELECT_SQL, rowMapper(), monthStart, monthEndExclusive);
 
         List<Object[]> updateBatch = new ArrayList<>(BATCH_FLUSH_SIZE);
         List<Object[]> logBatch = new ArrayList<>(BATCH_FLUSH_SIZE);
