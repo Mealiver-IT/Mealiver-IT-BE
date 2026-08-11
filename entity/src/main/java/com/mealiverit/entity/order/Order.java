@@ -43,6 +43,9 @@ public class Order {
 
     private LocalDateTime completedAt;
 
+    @Column(name = "coupon_issue_id")
+    private Long couponIssueId;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -57,6 +60,12 @@ public class Order {
         this.paidAmount = paidAmount;
         this.status = OrderStatus.COMPLETED;
         this.orderedAt = orderedAt;
+    }
+
+    //쿠폰 적용된 주문 생성용 오버로드 생성자
+    public Order(Long userId, BigDecimal orderAmount, BigDecimal paidAmount, LocalDateTime orderedAt, Long couponIssueId) {
+        this(userId, orderAmount, paidAmount, orderedAt);
+        this.couponIssueId = couponIssueId;
     }
 
     public void cancel() {
@@ -99,6 +108,8 @@ public class Order {
     public LocalDateTime getCompletedAt() {
         return completedAt;
     }
+
+    public Long getCouponIssueId() { return couponIssueId; }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
