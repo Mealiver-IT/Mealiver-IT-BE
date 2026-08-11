@@ -9,7 +9,7 @@
 ### Phase 1 — MVP (핵심 기능 + 최소 동시성 제어)
 - [ ] 도메인 모델/스키마 확정, unique constraint 적용 (`Orders`/`MembershipTierLog` 포함, [04_아키텍처.md](./04_아키텍처.txt) 1~2절)
 - [ ] 캠페인/쿠폰 CRUD(관리자용, 간단히), 발급 API(동기, **전략 (a) 비관적 락**)
-- [ ] 멤버십 등급(4단계) 필드 + 회원 전용 쿠폰 eligibility 체크 ([04_아키텍처.md](./04_아키텍처.txt) 6절, [09_기획서.md](./09_기획서.txt) 6절) — 락 획득 이전 단계라 동시성 전략에 영향 없음
+- [x] 멤버십 등급(4단계) 필드 + 회원 전용 쿠폰 eligibility 체크 ([04_아키텍처.md](./04_아키텍처.txt) 6절, [09_기획서.md](./09_기획서.txt) 6절) — V3/V4(Redis 게이트)는 락 획득 이전 단계라 동시성 전략에 영향 없음. V2(DB 비관적 락, Phase 1 구현)는 Campaign이 @Version 엔티티라 락 이전 조회를 별도로 두면 ObjectOptimisticLockingFailureException이 나서, 락 안에서 eligibility까지 함께 판정하도록 변경함 (동시성 테스트로 실측, [04_아키텍처.md](./04_아키텍처.txt) 5.1절 주석 참고)
 - [ ] `MembershipTierBatchJob` 구현(계급 산정 로직) — 더미데이터 시드에도 그대로 재사용 ([04_아키텍처.md](./04_아키텍처.txt) 6.2절)
 - [ ] 상태전이 API(사용/취소/만료) + 상태 머신 검증
 - [ ] 100만 User + orders 더미데이터 적재 → `MembershipTierBatchJob` 1회 실행으로 등급 산정, 300만 발급이력(정상 케이스 위주) 적재 ([05_시스템설계.md](./05_시스템설계.txt) 2절)
