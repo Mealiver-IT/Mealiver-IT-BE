@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import net.datafaker.Faker;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
@@ -20,6 +22,8 @@ import org.springframework.stereotype.Component;
 @Order(1)
 @ConditionalOnProperty(name = "seed.enabled", havingValue = "true")
 public class UserSeedRunner implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(UserSeedRunner.class);
 
     private static final String INSERT_SQL =
         "INSERT INTO users (login_id, name, phone, email) VALUES (?, ?, ?, ?)";
@@ -55,6 +59,6 @@ public class UserSeedRunner implements CommandLineRunner {
         jdbcTemplate.batchUpdate(INSERT_SQL, batch);
         Files.writeString(Path.of("users_20000.json"), json.toString());
 
-        System.out.println("done: 20000 users inserted + users_20000.json written");
+        log.info("done: 20000 users inserted + users_20000.json written");
     }
 }

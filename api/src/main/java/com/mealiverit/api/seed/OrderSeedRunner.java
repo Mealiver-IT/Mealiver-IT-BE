@@ -6,6 +6,8 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
@@ -24,6 +26,8 @@ import org.springframework.stereotype.Component;
 @Order(10)
 @ConditionalOnProperty(name = "seed.orders.enabled", havingValue = "true")
 public class OrderSeedRunner implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderSeedRunner.class);
 
     private static final String SELECT_USER_IDS_SQL = "SELECT id FROM users ORDER BY id";
 
@@ -51,7 +55,7 @@ public class OrderSeedRunner implements CommandLineRunner {
     public void run(String... args) {
         List<Long> userIds = jdbcTemplate.queryForList(SELECT_USER_IDS_SQL, Long.class);
         if (userIds.isEmpty()) {
-            System.out.println("skip: users 테이블이 비어 있음 (UserSeedRunner 먼저 실행할 것)");
+            log.warn("skip: users 테이블이 비어 있음 (UserSeedRunner 먼저 실행할 것)");
             return;
         }
 
@@ -98,10 +102,9 @@ public class OrderSeedRunner implements CommandLineRunner {
             jdbcTemplate.batchUpdate(INSERT_SQL, batch);
         }
 
-        System.out.println("done: users=" + userIds.size() + ", orders=" + totalOrders
-            + ", targetMonth=" + targetMonth);
+        log.info("done: users={}, orders={}, targetMonth={}", userIds.size(), totalOrders, targetMonth);
         for (int b = 0; b < BUCKETS.length; b++) {
-            System.out.println("  " + BUCKETS[b].label + " -> orders=" + orderCountByBucket[b]);
+            log.info("  {} -> orders={}", BUCKETS[b].label, orderCountByBucket[b]);
         }
     }
 

@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +28,8 @@ import org.springframework.stereotype.Component;
 // MembershipTierSeedRunner(더미데이터 1회성 시딩)도 이 run()을 그대로 호출한다 — 별도 랜덤 배정 로직 없음.
 @Component
 public class MembershipTierBatchJob {
+
+    private static final Logger log = LoggerFactory.getLogger(MembershipTierBatchJob.class);
 
     private static final String SELECT_SQL =
         "SELECT u.id AS user_id, u.membership_tier AS current_tier, "
@@ -109,7 +113,7 @@ public class MembershipTierBatchJob {
         }
 
         Result result = new Result(targetMonth, rows.size(), changedCount, tierCounts);
-        System.out.println(result);
+        log.info("{}", result);
         return result;
     }
 
