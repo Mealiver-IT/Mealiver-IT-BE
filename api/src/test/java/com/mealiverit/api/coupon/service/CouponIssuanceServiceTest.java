@@ -35,7 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 // uk_campaign_user/uk_idempotency_key 제약 위반 시 롤백 경로는 목으로는 검증할 수 없다.
 @SpringBootTest
 @Testcontainers
-class CouponIssueServiceTest {
+class CouponIssuanceServiceTest {
 
     @Container
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.0");
@@ -54,7 +54,7 @@ class CouponIssueServiceTest {
     }
 
     @Autowired
-    private CouponIssueService couponIssueService;
+    private CouponIssuanceService couponIssuanceService;
     @Autowired
     private CampaignRepository campaignRepository;
     @Autowired
@@ -87,7 +87,7 @@ class CouponIssueServiceTest {
                 ready.countDown();
                 await(start);
                 try {
-                    couponIssueService.issue(userId, campaignId, idempotencyKey);
+                    couponIssuanceService.issue(userId, campaignId, idempotencyKey);
                     successCount.incrementAndGet();
                 } catch (BusinessException e) {
                     if (e.getErrorCode() == ErrorCode.SOLD_OUT) {
@@ -135,7 +135,7 @@ class CouponIssueServiceTest {
                 ready.countDown();
                 await(start);
                 try {
-                    couponIssueService.issue(userId, campaignId, idempotencyKey);
+                    couponIssuanceService.issue(userId, campaignId, idempotencyKey);
                 } finally {
                     done.countDown();
                 }

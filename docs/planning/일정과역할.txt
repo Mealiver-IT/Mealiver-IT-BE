@@ -54,7 +54,7 @@
 
 | 역할 | 담당 범위 | 주요 산출물 |
 |---|---|---|
-| **발급 API / 동시성 담당** | 도메인 모델, 발급/상태전이 API, 동시성 전략 (a)→(c)→(f) 구현, idempotency 로직 | Coupon 도메인, `CouponIssueService`, Redis Lua script, 이중카운터 |
+| **발급 API / 동시성 담당** | 도메인 모델, 발급/상태전이 API, 동시성 전략 (a)→(c)→(f) 구현, idempotency 로직 | Coupon 도메인, `CouponIssuanceService`, Redis Lua script, 이중카운터 |
 | **데이터 / 검증 배치 담당** | 더미데이터 생성기(orders 포함), 검증 SQL/Spring Batch, `MembershipTierBatchJob`, PII 마스킹 구현 | 데이터 적재 배치, `ConsistencyVerificationJob`, `MembershipTierBatchJob`, 마스킹 컨버터/시리얼라이저 |
 | **인프라 / 부하테스트 담당** | Docker Compose 구성(MySQL/Redis/Kafka), k6 스크립트, CI, Mock 알림 인프라 | `docker-compose.yml`, k6 시나리오, 부하테스트 결과 리포트 |
 

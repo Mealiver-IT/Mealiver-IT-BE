@@ -24,7 +24,8 @@
 - `src/main/resources/db/migration/V1__create_core_tables.sql` — User/Campaign/Coupon/CouponIssue/CouponStateLog 스키마 및 unique constraint 정의 (Flyway 기준)
 - `src/main/resources/db/migration/V2__create_order_tier_tables.sql` — Orders/MembershipTierLog 스키마 ([04_아키텍처.md](./04_아키텍처.txt) 1절)
 - `src/main/java/.../coupon/domain/CouponIssue.java` — 상태 머신, `@Version`, idempotency key를 포함한 핵심 엔터티
-- `src/main/java/.../coupon/service/CouponIssueService.java` — 발급/상태전이 트랜잭션 로직, 동시성 전략의 실제 구현 지점
+- `src/main/java/.../coupon/service/CouponIssuanceService.java` — 발급(issue) 트랜잭션 로직, 동시성 전략의 실제 구현 지점
+- `src/main/java/.../coupon/service/CouponIssueService.java` — 상태전이(사용/취소/회수)·보유 쿠폰 조회. 이름이 비슷하지만 위 CouponIssuanceService와는 별개 클래스 — 병합 시 혼동 주의
 - `src/main/java/.../batch/ConsistencyVerificationJob.java` — 정합성 검증 Spring Batch Job ([05_시스템설계.md](./05_시스템설계.txt) 1절)
 - `src/main/java/.../membership/batch/MembershipTierBatchJob.java` — 매월 1일 계급 재산정 배치 ([04_아키텍처.md](./04_아키텍처.txt) 6.2절)
 - `src/test/loadtest/coupon_race.js` — k6 부하테스트 스크립트

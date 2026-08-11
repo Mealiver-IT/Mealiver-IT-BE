@@ -18,14 +18,14 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-// CouponIssueService에서 분리된 이유: uk_campaign_user 위반(DataIntegrityViolationException)이 나면
+// CouponIssuanceService에서 분리된 이유: uk_campaign_user 위반(DataIntegrityViolationException)이 나면
 // INSERT를 시도한 트랜잭션의 Hibernate 세션은 flush 실패로 오염되어 더 이상 쓸 수 없다(같은 세션으로
 // rollback()/재조회를 계속하면 "AssertionFailure: has a null identifier" 발생 — 동시성 테스트로 실측).
 // issueNew()의 예외가 프록시 경계를 넘어가야 트랜잭션이 깨끗하게 롤백되고, recoverFromConflict()가
 // 완전히 새 트랜잭션/세션에서 재고 원복과 재조회를 수행한다. 같은 클래스 안에서 this.method() 자기호출로는
 // 프록시를 안 타서 트랜잭션 경계가 안 나뉘기 때문에 별도 빈으로 분리했다.
 @Component
-class CouponIssueTransactionalOperations {
+class CouponIssuanceTransactionalOperations {
 
     private final CampaignRepository campaignRepository;
     private final CouponRepository couponRepository;
@@ -33,11 +33,11 @@ class CouponIssueTransactionalOperations {
     private final UserRepository userRepository;
     private final StockReservationStrategy stockReservationStrategy;
 
-    CouponIssueTransactionalOperations(CampaignRepository campaignRepository,
-                                        CouponRepository couponRepository,
-                                        CouponIssueRepository couponIssueRepository,
-                                        UserRepository userRepository,
-                                        StockReservationStrategy stockReservationStrategy) {
+    CouponIssuanceTransactionalOperations(CampaignRepository campaignRepository,
+                                           CouponRepository couponRepository,
+                                           CouponIssueRepository couponIssueRepository,
+                                           UserRepository userRepository,
+                                           StockReservationStrategy stockReservationStrategy) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.couponIssueRepository = couponIssueRepository;
