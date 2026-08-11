@@ -24,6 +24,13 @@
 			<artifactId>mysql-connector-j</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+
+<!--	entity 모듈에 테스트 의존성이 없어 JUnit5/AsserJ 사용을 위해 추가 (CouponStatusTest, CouponIssueTest)	-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 </project>
