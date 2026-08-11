@@ -6,6 +6,7 @@ import com.mealiverit.entity.coupon.InvalidStateTransitionException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -44,6 +45,15 @@ public class GlobalExceptionHandler {
                 .orElse(ErrorCode.INVALID_REQUEST.getMessage());
         return ResponseEntity.badRequest()
                 .body(new ErrorResponse(ErrorCode.INVALID_REQUEST.name(), message));
+    }
+
+    // 필수 헤더 누락(X-User-Id, Idempotency-Key 등) — 기본값으로는 이 ControllerAdvice의
+    // Exception 캐치올에 걸려 500이 나가버리므로 명시적으로 400 처리한다.
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingRequestHeader(MissingRequestHeaderException e) {
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponse(ErrorCode.INVALID_REQUEST.name(),
+                        "필수 헤더가 없습니다: " + e.getHeaderName()));
     }
 
     // Campaign.@Version 낙관적 락 충돌 — 관리자 상태전이 API에서 동시에 두 요청이 같은 캠페인을 바꿀 때 발생.
