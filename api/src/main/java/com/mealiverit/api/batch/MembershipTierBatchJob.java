@@ -44,14 +44,17 @@ public class MembershipTierBatchJob {
             + ") o ON o.user_id = u.id "
             + "ORDER BY u.id";
 
-    private static final String UPDATE_USER_SQL =
-        "UPDATE users SET membership_tier = ?, tier_calculated_at = ? WHERE id = ?";
-
     private static final String INSERT_LOG_SQL =
         "INSERT INTO membership_tier_log (user_id, from_tier, to_tier, order_count, calculated_at) "
             + "VALUES (?, ?, ?, ?, ?)";
 
     private static final int BATCH_FLUSH_SIZE = 5_000;
+
+    // ⚠️ rewriteBatchedStatements=true는 INSERT만 여러 행을 한 문장(VALUES (a),(b),(c))으로 합쳐준다.
+    // UPDATE는 행마다 WHERE가 달라 애초에 합칠 SQL 문법이 없어서, jdbcTemplate.batchUpdate()로 아무리
+    // 묶어봐야 MySQL엔 건별로 개별 실행됨 — 100만 건 기준 왕복 100만 번, 실측 3시간+ 소요를 확인했다.
+    // 그래서 UPDATE는 CASE WHEN으로 청크(1,000건)당 한 문장만 날리는 방식을 쓴다(flushTierUpdates 참고).
+    private static final int UPDATE_CHUNK_SIZE = 1_000;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -77,7 +80,7 @@ public class MembershipTierBatchJob {
         // 것과 같은, 검증된 스프링 파라미터 바인딩 경로(query(sql, rowMapper, args...))로 교체.
         List<UserTierRow> rows = jdbcTemplate.query(SELECT_SQL, rowMapper(), monthStart, monthEndExclusive);
 
-        List<Object[]> updateBatch = new ArrayList<>(BATCH_FLUSH_SIZE);
+        List<Object[]> pendingTierUpdates = new ArrayList<>(UPDATE_CHUNK_SIZE);
         List<Object[]> logBatch = new ArrayList<>(BATCH_FLUSH_SIZE);
         long[] tierCounts = new long[MembershipTier.values().length];
         long changedCount = 0;
@@ -86,10 +89,10 @@ public class MembershipTierBatchJob {
             MembershipTier expectedTier = MembershipTierCalculator.fromCompletedOrderCount(row.orderCount);
             tierCounts[expectedTier.ordinal()]++;
 
-            updateBatch.add(new Object[]{expectedTier.name(), runAt, row.userId});
-            if (updateBatch.size() >= BATCH_FLUSH_SIZE) {
-                jdbcTemplate.batchUpdate(UPDATE_USER_SQL, updateBatch);
-                updateBatch.clear();
+            pendingTierUpdates.add(new Object[]{row.userId, expectedTier.name()});
+            if (pendingTierUpdates.size() >= UPDATE_CHUNK_SIZE) {
+                flushTierUpdates(pendingTierUpdates, runAt);
+                pendingTierUpdates.clear();
             }
 
             if (row.currentTier != expectedTier) {
@@ -103,8 +106,8 @@ public class MembershipTierBatchJob {
                 }
             }
         }
-        if (!updateBatch.isEmpty()) {
-            jdbcTemplate.batchUpdate(UPDATE_USER_SQL, updateBatch);
+        if (!pendingTierUpdates.isEmpty()) {
+            flushTierUpdates(pendingTierUpdates, runAt);
         }
         if (!logBatch.isEmpty()) {
             jdbcTemplate.batchUpdate(INSERT_LOG_SQL, logBatch);
@@ -113,6 +116,34 @@ public class MembershipTierBatchJob {
         Result result = new Result(targetMonth, rows.size(), changedCount, tierCounts);
         log.info("{}", result);
         return result;
+    }
+
+    // pending의 (userId, tierName) 쌍들을 CASE WHEN 한 문장으로 묶어 UPDATE 1번만 실행한다.
+    // 예: UPDATE users SET membership_tier = CASE id WHEN 1 THEN 'PFC' WHEN 2 THEN 'SERGEANT' ... END,
+    //     tier_calculated_at = ? WHERE id IN (1, 2, ...)
+    private void flushTierUpdates(List<Object[]> pending, LocalDateTime runAt) {
+        StringBuilder sql = new StringBuilder("UPDATE users SET membership_tier = CASE id ");
+        for (int i = 0; i < pending.size(); i++) {
+            sql.append("WHEN ? THEN ? ");
+        }
+        sql.append("END, tier_calculated_at = ? WHERE id IN (");
+        for (int i = 0; i < pending.size(); i++) {
+            sql.append(i == 0 ? "?" : ",?");
+        }
+        sql.append(")");
+
+        Object[] params = new Object[pending.size() * 2 + 1 + pending.size()];
+        int idx = 0;
+        for (Object[] row : pending) {
+            params[idx++] = row[0];
+            params[idx++] = row[1];
+        }
+        params[idx++] = runAt;
+        for (Object[] row : pending) {
+            params[idx++] = row[0];
+        }
+
+        jdbcTemplate.update(sql.toString(), params);
     }
 
     private RowMapper<UserTierRow> rowMapper() {
