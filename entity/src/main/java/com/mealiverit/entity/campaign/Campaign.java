@@ -68,6 +68,23 @@ public class Campaign {
         this.status = CampaignStatus.CLOSED;
     }
 
+    // 재고 1장 차감. 호출 전 getRemainingStock() > 0 확인은 호출측(StockReservationStrategy) 책임 —
+    // 여기서는 방어적으로만 막는다.
+    public void decreaseStock() {
+        if (remainingStock <= 0) {
+            throw new IllegalStateException("remainingStock must be positive to decrease");
+        }
+        this.remainingStock--;
+    }
+
+    // Redis 상태 유실 대비 워밍업(04_아키텍처.txt 4.2절)에서 DB 실측 발급 건수 기준으로 재동기화할 때 사용
+    public void restoreStock() {
+        if (remainingStock >= totalStock) {
+            throw new IllegalStateException("remainingStock cannot exceed totalStock");
+        }
+        this.remainingStock++;
+    }
+
     // 04_아키텍처.txt 6절: min_membership_tier가 NULL이면 항상 true,
     // 아니면 tier.ordinal() >= minMembershipTier.ordinal()로 판정하는 순수 함수
     public boolean isEligible(MembershipTier tier) {
