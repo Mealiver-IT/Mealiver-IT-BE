@@ -9,7 +9,7 @@
 ### Phase 1 — MVP (핵심 기능 + 최소 동시성 제어)
 - [ ] 도메인 모델/스키마 확정, unique constraint 적용 (`Orders`/`MembershipTierLog` 포함, [04_아키텍처.md](./04_아키텍처.txt) 1~2절)
 - [ ] 캠페인/쿠폰 CRUD(관리자용, 간단히), 발급 API(동기, **전략 (a) 비관적 락**)
-- [ ] 멤버십 등급(4단계) 필드 + 회원 전용 쿠폰 eligibility 체크 ([04_아키텍처.md](./04_아키텍처.txt) 6절, [09_기획서.md](./09_기획서.txt) 6절) — 락 획득 이전 단계라 동시성 전략에 영향 없음
+- [x] 멤버십 등급(4단계) 필드 + 회원 전용 쿠폰 eligibility 체크 ([04_아키텍처.md](./04_아키텍처.txt) 6절, [09_기획서.md](./09_기획서.txt) 6절) — V3/V4(Redis 게이트)는 락 획득 이전 단계라 동시성 전략에 영향 없음. V2(DB 비관적 락, Phase 1 구현)는 Campaign이 @Version 엔티티라 락 이전 조회를 별도로 두면 ObjectOptimisticLockingFailureException이 나서, 락 안에서 eligibility까지 함께 판정하도록 변경함 (동시성 테스트로 실측, [04_아키텍처.md](./04_아키텍처.txt) 5.1절 주석 참고)
 - [ ] `MembershipTierBatchJob` 구현(계급 산정 로직) — 더미데이터 시드에도 그대로 재사용 ([04_아키텍처.md](./04_아키텍처.txt) 6.2절)
 - [ ] 상태전이 API(사용/취소/만료) + 상태 머신 검증
 - [ ] 100만 User + orders 더미데이터 적재 → `MembershipTierBatchJob` 1회 실행으로 등급 산정, 300만 발급이력(정상 케이스 위주) 적재 ([05_시스템설계.md](./05_시스템설계.txt) 2절)
@@ -54,7 +54,7 @@
 
 | 역할 | 담당 범위 | 주요 산출물 |
 |---|---|---|
-| **발급 API / 동시성 담당** | 도메인 모델, 발급/상태전이 API, 동시성 전략 (a)→(c)→(f) 구현, idempotency 로직 | Coupon 도메인, `CouponIssueService`, Redis Lua script, 이중카운터 |
+| **발급 API / 동시성 담당** | 도메인 모델, 발급/상태전이 API, 동시성 전략 (a)→(c)→(f) 구현, idempotency 로직 | Coupon 도메인, `CouponIssuanceService`, Redis Lua script, 이중카운터 |
 | **데이터 / 검증 배치 담당** | 더미데이터 생성기(orders 포함), 검증 SQL/Spring Batch, `MembershipTierBatchJob`, PII 마스킹 구현 | 데이터 적재 배치, `ConsistencyVerificationJob`, `MembershipTierBatchJob`, 마스킹 컨버터/시리얼라이저 |
 | **인프라 / 부하테스트 담당** | Docker Compose 구성(MySQL/Redis/Kafka), k6 스크립트, CI, Mock 알림 인프라 | `docker-compose.yml`, k6 시나리오, 부하테스트 결과 리포트 |
 
