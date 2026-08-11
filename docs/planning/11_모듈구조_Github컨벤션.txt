@@ -1,0 +1,143 @@
+# 모듈 구성 · GitHub 컨벤션
+
+관련: [08_개발표준.md](./08_개발표준.txt) | [10_기술문서.md](./10_기술문서.txt)
+
+## 1. 모듈 구성
+
+멀티모듈로 나눠서, `entity`는 순수 JPA 엔티티만 담당하고 `api`는 그걸 가져다 쓰는 구조.
+
+```
+mealiver-it-be/                (루트, 부모 pom)
+├── pom.xml                    (packaging=pom, modules: entity, api)
+├── entity/                    (엔티티 전용 모듈)
+└── api/                       (API 서버 모듈 — entity 모듈에 의존)
+```
+
+### entity 모듈
+
+도메인별 폴더 안에 JPA 엔티티만 넣는다. Controller/Service/DTO는 여기 들어가지 않는다.
+
+```
+entity/
+└── src/main/java/com/mealiverit/entity/
+    ├── user/
+    │   ├── User.java
+    │   └── UserRepository.java
+    ├── campaign/
+    │   ├── Campaign.java
+    │   └── CampaignRepository.java
+    ├── coupon/
+    │   ├── Coupon.java
+    │   ├── CouponIssue.java
+    │   ├── CouponStateLog.java
+    │   ├── CouponRepository.java
+    │   ├── CouponIssueRepository.java
+    │   └── CouponStateLogRepository.java
+    └── common/
+        └── BaseTimeEntity.java   (createdAt/updatedAt 공통 필드용, 선택)
+```
+
+### api 모듈
+
+`common` 폴더(공통 예외/응답)와, 도메인별 폴더(controller/service/dto)로 나눈다.
+
+```
+api/
+└── src/main/java/com/mealiverit/api/
+    ├── MealiverItBeApplication.java
+    │
+    ├── common/
+    │   ├── exception/
+    │   │   ├── GlobalExceptionHandler.java   (@RestControllerAdvice, 전역 예외 처리)
+    │   │   ├── ErrorCode.java                (에러 코드 enum)
+    │   │   └── BusinessException.java        (도메인 예외 공통 부모)
+    │   └── response/
+    │       ├── ApiResponse.java              (공통 성공 응답 래퍼)
+    │       └── ErrorResponse.java            (공통 에러 응답 포맷)
+    │
+    ├── campaign/
+    │   ├── controller/CampaignController.java
+    │   ├── service/CampaignService.java
+    │   └── dto/
+    │       ├── CampaignCreateRequest.java
+    │       └── CampaignResponse.java
+    │
+    ├── coupon/
+    │   ├── controller/CouponController.java
+    │   ├── service/CouponIssueService.java
+    │   └── dto/
+    │       ├── CouponIssueRequest.java
+    │       └── CouponIssueResponse.java
+    │
+    └── order/                                 (예시: 새 도메인 추가 시 이 패턴 반복)
+        ├── controller/OrderController.java
+        ├── service/OrderService.java
+        └── dto/
+            ├── OrderCreateRequest.java
+            └── OrderResponse.java
+```
+
+### 규칙 요약
+
+- 모듈 의존 방향: `api` → `entity` (한 방향만). `entity` 모듈은 `api`를 몰라야 함.
+- `common/`: 특정 도메인에 속하지 않는 것만. 예외 처리, 응답 포맷 두 가지만 우선 여기 둠.
+- 도메인 폴더(`campaign/`, `coupon/`, `order/` ...): 그 도메인 관련 controller/service/dto만 넣고, 다른 도메인 폴더를 참조하지 않는 게 원칙 (필요하면 service 레벨에서만 교차 참조).
+- DTO 위치: Request/Response 둘 다 해당 도메인의 `dto/` 안에 같이 둠 (요청/응답 폴더를 더 쪼개지 않음).
+
+**현재 코드와의 차이 (2026-08-11 기준)**: `entity/coupon/`이 위 스펙과 다르게 `entity/coupon/entity/`(Coupon, CouponIssue, CouponStateLog)와 `entity/coupon/repository/`(각 Repository)로 이미 하위 폴더가 나뉘어 있고, `CouponStatus`/`DiscountType`/`InvalidStateTransitionException`이 `coupon/` 바로 아래 있음. 새로 이 컨벤션을 적용할 domain(order 등)부터 스펙대로 평평하게(flat) 두고, coupon 리팩터링 여부는 팀에서 별도 결정.
+
+## 2. GitHub 컨벤션
+
+**적용 대상**: Mealiver-IT-BE
+
+### 2.1 브랜치 전략
+
+- `main`: 항상 배포 가능한 상태 유지. 직접 커밋 금지, PR을 통해서만 병합
+- 작업 브랜치명: `type/설명` (kebab-case, 영문)
+
+| type | 용도 | 예시 |
+| --- | --- | --- |
+| `feat` | 신규 기능 | `feat/spring-boot-scaffold` |
+| `fix` | 버그 수정 | `fix/coupon-race-condition` |
+| `refactor` | 리팩터링(동작 변경 없음) | `refactor/multi-module-api-entity` |
+| `docs` | 문서 작업 | `docs/architecture-update` |
+| `ci` | CI/CD, 빌드 파이프라인 | `ci/docker-build-push-ghcr` |
+| `test` | 테스트 추가/보완 | `test/coupon-issue-concurrency` |
+| `chore` | 기타 잡무(의존성 업데이트 등) | `chore/upgrade-spring-boot` |
+
+### 2.2 커밋 메시지
+
+형식: `type: 변경 요약` (Conventional Commits 기반, 한글 요약 허용)
+
+```
+feat: 쿠폰 발급 API 낙관적 락 적용
+fix: 재고 초과발급 버그 수정
+docs: 계급별 차등 할인율 30%/50% 확정 반영
+refactor: api/entity 멀티모듈 구조로 분리
+ci: Docker build/push workflow 추가
+```
+
+- 제목은 명령형/현재형, 마침표 없이 간결하게 (50자 내외 권장)
+- 여러 변경사항을 한 커밋에 욱여넣지 말고, 논리적 단위로 분리
+- "WIP", "수정", "asdf" 같은 의미 없는 메시지 금지
+- 본문이 필요하면 제목과 빈 줄 하나로 구분 후 "왜" 위주로 작성 (무엇을 했는지는 diff로 알 수 있음)
+
+### 2.3 Pull Request
+
+- 하나의 PR = 하나의 목적. 기능/버그수정/리팩터링을 섞지 않음
+- 제목은 커밋 컨벤션과 동일한 `type: 요약` 형식
+- 설명에 포함할 것: 변경 배경/목적, 주요 변경 사항 요약, 테스트 방법/결과(`mvn test` 통과 여부, 동시성 시나리오 재현 결과 등), 관련 이슈/문서 링크(`docs/planning/` 내 관련 문서)
+- 머지 전 [08_개발표준.md](./08_개발표준.txt) 6절 "검증 루프" 통과 확인 (빌드/테스트/보안 스캔/정합성 검증)
+- 병합 방식: Merge commit (히스토리에 PR 단위 기록 유지, 현재 저장소 관행과 동일)
+- 리뷰 없이 self-merge 지양, 최소 1인 리뷰 필수(팀 인원 상황에 따라 조정)
+
+### 2.4 이슈/작업 관리
+
+- 작업 단위는 [07_실행계획_2주5인.md](./07_실행계획_2주5인.txt)의 Phase 구분(Phase 1~4)을 따른다
+- 큰 작업은 이슈로 등록 후 브랜치를 이슈 번호와 연결 권장 (예: `feat/12-coupon-issue-api`)
+- PR 설명에 `Closes #이슈번호`로 이슈 자동 종료 연결
+
+### 2.5 기타
+
+- `.gitignore`에 없는 민감 정보(DB 자격증명 등)는 절대 커밋 금지 — [08_개발표준.md](./08_개발표준.txt) 3절 보안 체크리스트 참고
+- CI(`.github/workflows/docker-publish.yml`)가 실패한 PR은 원인 해결 전까지 머지하지 않음
