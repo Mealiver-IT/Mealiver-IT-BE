@@ -59,12 +59,18 @@ public class Campaign {
     }
 
     public void open(LocalDateTime openAt, LocalDateTime closeAt) {
+        if (status != CampaignStatus.READY) {
+            throw new InvalidCampaignStateTransitionException(status, CampaignStatus.OPEN);
+        }
         this.status = CampaignStatus.OPEN;
         this.openAt = openAt;
         this.closeAt = closeAt;
     }
 
     public void close() {
+        if (status != CampaignStatus.OPEN) {
+            throw new InvalidCampaignStateTransitionException(status, CampaignStatus.CLOSED);
+        }
         this.status = CampaignStatus.CLOSED;
     }
 
