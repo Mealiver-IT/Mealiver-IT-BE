@@ -92,7 +92,7 @@
 ### 6.3 회원 전용 쿠폰과의 연결
 
 - `campaign`(또는 `coupon`)에 `min_membership_tier` 컬럼(nullable) 추가 — 설정 시 해당 등급 이상만 발급 가능
-- 발급 로직(`CouponIssueService.issue`)에 **eligibility 체크를 재고 확보 이전 단계로 추가** — 동시성 전략 자체는 변경 없음, 검증 단계 하나만 추가되는 구조 ([04_아키텍처.md](./04_아키텍처.txt) 6절 참고)
+- 발급 로직(`CouponIssuanceService.issue`)에 **eligibility 체크를 재고 확보 이전 단계로 추가** — 동시성 전략 자체는 변경 없음, 검증 단계 하나만 추가되는 구조 ([04_아키텍처.md](./04_아키텍처.txt) 6절 참고)
 - 정합성 검증 쿼리에도 "등급 미달 유저에게 발급된 케이스가 없는가" 항목 추가 가능(선택)
 
 ## 7. 선택 확장 (Optional / Stretch)
