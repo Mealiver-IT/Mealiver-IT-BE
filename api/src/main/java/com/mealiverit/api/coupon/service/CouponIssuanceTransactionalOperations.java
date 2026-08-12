@@ -4,6 +4,7 @@ import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStatus;
 import com.mealiverit.entity.coupon.DiscountType;
 import com.mealiverit.entity.coupon.TierDiscountPolicy;
 import com.mealiverit.entity.coupon.entity.Coupon;
@@ -56,6 +57,11 @@ class CouponIssuanceTransactionalOperations {
         // 포기하지만, 이 프로젝트는 성능이 아니라 정확성이 평가축이라 트레이드오프가 맞다.
         Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
+        // FR-FCFS-031: "캠페인 미오픈"은 품절/등급미달과 구분되는 별도 실패 사유다.
+        // READY(아직 시작 전)/CLOSED(이미 종료) 둘 다 발급 대상이 아니므로 OPEN만 통과시킨다.
+        if (campaign.getStatus() != CampaignStatus.OPEN) {
+            throw new BusinessException(ErrorCode.CAMPAIGN_NOT_OPEN);
+        }
         MembershipTier userTier = user.getMembershipTier();
         if (!campaign.isEligible(userTier)) {
             throw new BusinessException(ErrorCode.MEMBERSHIP_TIER_NOT_ELIGIBLE);
