@@ -37,18 +37,6 @@ mealiver-it-be/
         └── seed/        # 더미데이터 시더 (유저/오더/등급/캠페인/발급이력)
 ```
 
-## 시작하기
-
-로컬 환경 세팅, DB 실행, 더미데이터 생성 방법은 [`api/src/main/java/com/mealiverit/api/seed/README.md`](api/src/main/java/com/mealiverit/api/seed/README.md)에 정리되어 있습니다.
-
-빠른 시작:
-
-```powershell
-.\mvnw.cmd install -DskipTests
-docker run -d --name mealiver-mysql -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=mealiverit mysql:8
-.\mvnw.cmd spring-boot:run -pl api "-Dspring-boot.run.profiles=local"
-```
-
 ## 기획/설계 문서
 
 과제 요구사항부터 아키텍처, 시스템 설계, 개발 표준까지 전체 기획 문서는 [`docs/planning/`](docs/planning)에 정리되어 있습니다. 처음 보는 사람은 [`docs/planning/README_먼저읽기.txt`](docs/planning/README_먼저읽기.txt)부터 읽는 걸 권장합니다.
