@@ -13,6 +13,7 @@ import com.mealiverit.entity.coupon.repository.CouponRepository;
 import com.mealiverit.entity.user.User;
 import com.mealiverit.entity.user.UserRepository;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
@@ -154,7 +155,9 @@ class CouponIssuanceServiceTest {
     }
 
     private Long createCampaign(int stock) {
-        Campaign campaign = campaignRepository.save(new Campaign("테스트 캠페인", stock, null));
+        Campaign campaign = new Campaign("테스트 캠페인", stock, null);
+        campaign.open(LocalDateTime.now(), null);
+        campaign = campaignRepository.save(campaign);
         couponRepository.save(new Coupon(campaign.getId(), DiscountType.FIXED,
                 BigDecimal.valueOf(1000), null, null, 24));
         return campaign.getId();

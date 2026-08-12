@@ -13,6 +13,7 @@ import com.mealiverit.entity.user.MembershipTier;
 import com.mealiverit.entity.user.User;
 import com.mealiverit.entity.user.UserRepository;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -101,8 +102,24 @@ class CouponClaimControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void 캠페인이_아직_OPEN이_아니면_409() throws Exception {
+        Campaign campaign = campaignRepository.save(new Campaign("아직 안 열린 캠페인", 10, null));
+        couponRepository.save(new Coupon(campaign.getId(), DiscountType.FIXED,
+                BigDecimal.valueOf(1000), null, null, 24));
+        Long userId = createUser(MembershipTier.PRIVATE);
+
+        mockMvc.perform(post("/api/campaigns/{campaignId}/coupons", campaign.getId())
+                        .header("X-User-Id", userId)
+                        .header("Idempotency-Key", "idem-" + userId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CAMPAIGN_NOT_OPEN"));
+    }
+
     private Long createCampaign(int stock, MembershipTier minMembershipTier) {
-        Campaign campaign = campaignRepository.save(new Campaign("테스트 캠페인", stock, minMembershipTier));
+        Campaign campaign = new Campaign("테스트 캠페인", stock, minMembershipTier);
+        campaign.open(LocalDateTime.now(), null);
+        campaign = campaignRepository.save(campaign);
         couponRepository.save(new Coupon(campaign.getId(), DiscountType.FIXED,
                 BigDecimal.valueOf(1000), null, null, 24));
         return campaign.getId();
