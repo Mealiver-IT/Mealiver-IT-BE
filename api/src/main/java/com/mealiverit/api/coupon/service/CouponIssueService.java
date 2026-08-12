@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class CouponIssueService {
@@ -34,21 +33,29 @@ public class CouponIssueService {
     }
 
     //OrderService가 결제완료(POST /api/orders) 처리 중 내부 호출. 별도 public API 없음
+    //requestId: 호출측(OrderService)이 재시도 시에도 동일하게 넘겨야 하는 멱등키
     @Transactional
-    public void markUsed(Long issueId) {
+    public void markUsed(Long issueId, String requestId) {
+        if (couponStateLogRepository.existsByRequestId(requestId)) {
+            return; //이미 처리된 요청 - 재시도로 들어와도 아무 것도 안하고 조용히 반환
+        }
         CouponIssue issue = findIssueOrThrow(issueId);
         CouponStatus before = issue.getStatus();
         issue.markUsed();
-        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), UUID.randomUUID().toString()));
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
     }
 
     //OrderService가 주문취소(환불) 처리 중 내부 호출. 별도 public API 없음
+    //requestId: 호출측(OrderService)이 재시도 시에도 동일하게 넘겨야 하는 멱등키
     @Transactional
-    public void markCanceled(Long issueId) {
+    public void markCanceled(Long issueId, String requestId) {
+        if (couponStateLogRepository.existsByRequestId(requestId)) {
+            return; //이미 처리된 요청 - 재시도로 들어와도 아무 것도 안하고 조용히 반환
+        }
         CouponIssue issue = findIssueOrThrow(issueId);
         CouponStatus before = issue.getStatus();
         issue.markCanceled();
-        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), UUID.randomUUID().toString()));
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
     }
 
     private CouponIssue findIssueOrThrow(Long issueId) {
