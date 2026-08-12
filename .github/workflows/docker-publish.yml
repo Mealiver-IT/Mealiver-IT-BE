@@ -32,7 +32,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=sha,format=short
 
       - name: Set up Docker Buildx
@@ -66,7 +66,7 @@ jobs:
         working-directory: ${{ vars.INFRA_COMPOSE_DIR }}
         run: |
           docker compose pull api
-          docker compose up -d api
+          docker compose up -d --force-recreate api
 
       - name: Clean up dangling images
         run: docker image prune -f
