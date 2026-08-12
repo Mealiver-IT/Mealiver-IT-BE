@@ -3,6 +3,8 @@ package com.mealiverit.api.coupon.service;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.api.coupon.dto.CouponIssueResponse;
+import com.mealiverit.entity.campaign.Campaign;
+import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.coupon.CouponStatus;
 import com.mealiverit.entity.coupon.entity.CouponIssue;
 import com.mealiverit.entity.coupon.entity.CouponStateLog;
@@ -15,23 +17,33 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class CouponIssueService {
 
     private final CouponIssueRepository couponIssueRepository;
     private final CouponStateLogRepository couponStateLogRepository;
+    private final CampaignRepository campaignRepository;
 
     public CouponIssueService(CouponIssueRepository couponIssueRepository,
-                              CouponStateLogRepository couponStateLogRepository) {
+                              CouponStateLogRepository couponStateLogRepository,
+                              CampaignRepository campaignRepository) {
         this.couponIssueRepository = couponIssueRepository;
         this.couponStateLogRepository = couponStateLogRepository;
+        this.campaignRepository = campaignRepository;
     }
 
     //결제 페이지 토글 UI용 - 사용 가능(ISSUED)한 쿠폰만 반환
     public List<CouponIssueResponse> getIssuedCoupons(Long userId) {
-        return couponIssueRepository.findByUserIdAndStatus(userId, CouponStatus.ISSUED).stream()
-                .map(CouponIssueResponse::from)
+        List<CouponIssue> issues = couponIssueRepository.findByUserIdAndStatus(userId, CouponStatus.ISSUED);
+        List<Long> campaignIds = issues.stream().map(CouponIssue::getCampaignId).distinct().toList();
+        Map<Long, String> campaignNameById = campaignRepository.findAllById(campaignIds).stream()
+                .collect(Collectors.toMap(Campaign::getId, Campaign::getName));
+
+        return issues.stream()
+                .map(issue -> CouponIssueResponse.from(issue, campaignNameById.get(issue.getCampaignId())))
                 .toList();
     }
 
