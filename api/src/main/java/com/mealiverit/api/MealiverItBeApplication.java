@@ -4,13 +4,16 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 // @EnableScheduling: MembershipTierBatchJob(매월 1일) 등 @Scheduled 배치가 실제로 동작하려면 필요.
+// @EnableRetry: 상태전이(markUsed/markCanceled) 낙관적 락 충돌 시 @Retryable 재시도가 동작하려면 필요.
 @SpringBootApplication
 @EntityScan("com.mealiverit.entity")
 @EnableJpaRepositories("com.mealiverit.entity")
 @EnableScheduling
+@EnableRetry
 public class MealiverItBeApplication {
 
 	public static void main(String[] args) {

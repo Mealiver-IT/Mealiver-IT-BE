@@ -8,6 +8,9 @@ import com.mealiverit.entity.coupon.entity.CouponIssue;
 import com.mealiverit.entity.coupon.entity.CouponStateLog;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponStateLogRepository;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +37,12 @@ public class CouponIssueService {
 
     //OrderService가 결제완료(POST /api/orders) 처리 중 내부 호출. 별도 public API 없음
     //requestId: 호출측(OrderService)이 재시도 시에도 동일하게 넘겨야 하는 멱등키
+    //동시 요청으로 인한 @Version 충돌 시 지수 백오프로 최대 3회 재시도
+    @Retryable(
+            retryFor = OptimisticLockingFailureException.class,
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 100, multiplier = 2)
+    )
     @Transactional
     public void markUsed(Long issueId, String requestId) {
         if (couponStateLogRepository.existsByRequestId(requestId)) {
@@ -47,6 +56,12 @@ public class CouponIssueService {
 
     //OrderService가 주문취소(환불) 처리 중 내부 호출. 별도 public API 없음
     //requestId: 호출측(OrderService)이 재시도 시에도 동일하게 넘겨야 하는 멱등키
+    //동시 요청으로 인한 @Version 충돌 시 지수 백오프로 최대 3회 재시도
+    @Retryable(
+            retryFor = OptimisticLockingFailureException.class,
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 100, multiplier = 2)
+    )
     @Transactional
     public void markCanceled(Long issueId, String requestId) {
         if (couponStateLogRepository.existsByRequestId(requestId)) {
