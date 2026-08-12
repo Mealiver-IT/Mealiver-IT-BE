@@ -1,107 +1,58 @@
-# Mealiver-IT 개발 환경 실행 가이드
+# Mealiver-IT (밀리버릿)
 
-로컬에서 앱 띄우고 더미데이터 만드는 법, 리모트(학원 서버) DB 연결하는 법 정리.
+배달앱(배민 스타일)에서 매일 오전 11시에 여는 **선착순 할인 쿠폰 발급**을 소재로 한 동시성·정합성 백엔드 프로젝트입니다. U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"으로, 팀명은 **태진아**입니다.
 
-## 0. 사전 준비
+핵심 목표는 단순합니다 — 재고 10,000장에 20,000명이 동시에 요청해도 **초과 발급 0건, 1인 최대 1매**를 보장하는 것, 그리고 발급/사용/취소/만료 이력 300만 건 전체에 대해 재고와 이력이 어긋나지 않음을 스스로 검증할 수 있는 것.
 
-- JDK 21
-- Docker Desktop (실행 중이어야 함 — 트레이 아이콘 확인)
-- Tailscale 연결(리모트 DB 쓸 때만 필요)
+## 왜 이 문제인가
 
-## 1. 전체 빌드 (최초 1회 / pull 받은 뒤마다)
+짧은 코드로도 시작할 수 있지만 정확히 풀기는 어려운 문제입니다. 처리량이나 응답 속도는 평가 대상이 아니고, 동시성 제어의 정확성과 정합성을 스스로 검증하는 능력이 핵심 평가축(기술성+수행능력 60%)입니다.
 
-멀티모듈이라 `entity`를 먼저 로컬 저장소에 설치해야 `api`가 빌드된다.
+## 기술 스택
+
+- Java 21, Spring Boot
+- MySQL, Redis
+- Docker Compose
+- Maven 멀티모듈 (`entity` + `api`)
+
+## 핵심 기능
+
+- **선착순 쿠폰 발급** — 동시성 제어 전략은 MVP(비관적 락)에서 Redis 이중 카운터 방식으로 하드닝
+- **쿠폰 상태 머신** — `ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부
+- **Idempotency** — 동일한 발급/사용/취소/만료 요청이 중복·동시에 들어와도 결과는 1회만 반영
+- **멤버십 등급 시스템** — 이등병/일병/상병/병장 4단계, 완료 주문 수 기준 매월 1일 자동 재산정 배치
+- **등급별 차등 할인** — 발급 시점 등급 기준 이등병·일병 10% / 상병 30% / 병장 50%, 이후 등급이 바뀌어도 이미 발급된 쿠폰의 할인율은 불변
+- **정합성 자기검증** — 300만 건 발급이력 전체를 대상으로, 같은 데이터로 재실행하면 같은 결과가 나오는 결정론적 검증 쿼리/배치
+- **더미데이터** — 가상 유저 100만 명 + 발급이력 300만 건 규모로 생성·적재
+
+## 모듈 구조
+
+```
+mealiver-it-be/
+├── entity/   # JPA 엔티티 전용 모듈 (user, campaign, coupon, order, membership)
+└── api/      # API 서버 모듈 — entity에 의존
+    └── src/main/java/com/mealiverit/api/
+        ├── common/     # 전역 예외 처리, 공통 응답 포맷
+        ├── batch/       # 멤버십 등급 재산정 배치
+        └── seed/        # 더미데이터 시더 (유저/오더/등급/캠페인/발급이력)
+```
+
+## 시작하기
+
+로컬 환경 세팅, DB 실행, 더미데이터 생성 방법은 [`api/src/main/java/com/mealiverit/api/seed/README.md`](api/src/main/java/com/mealiverit/api/seed/README.md)에 정리되어 있습니다.
+
+빠른 시작:
 
 ```powershell
 .\mvnw.cmd install -DskipTests
-```
-
-## 2. 로컬 DB 띄우기
-
-```powershell
 docker run -d --name mealiver-mysql -p 3307:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=mealiverit mysql:8
-```
-
-- 포트를 3306이 아니라 3307로 매핑한 이유: 로컬에 이미 MySQL이 깔려있는 사람이 많아서 충돌 방지.
-- 컨테이너 이름/포트를 바꾸면 아래 설정도 같이 바꿀 것.
-
-`api/src/main/resources/application-local.properties` 파일 만들기(없으면 생성, `.gitignore`에 등록돼 있어서 커밋 안 됨):
-
-```properties
-spring.datasource.url=jdbc:mysql://localhost:3307/mealiverit
-spring.datasource.username=root
-spring.datasource.password=root
-```
-
-## 3. 앱 실행 (로컬, 평소 개발용)
-
-```powershell
 .\mvnw.cmd spring-boot:run -pl api "-Dspring-boot.run.profiles=local"
 ```
 
-Flyway가 자동으로 `V1__create_core_tables.sql` 등을 적용해서 테이블을 만든다.
+## 기획/설계 문서
 
-## 4. 더미데이터(유저 20,000명) 생성
+과제 요구사항부터 아키텍처, 시스템 설계, 개발 표준까지 전체 기획 문서는 [`docs/planning/`](docs/planning)에 정리되어 있습니다. 처음 보는 사람은 [`docs/planning/README_먼저읽기.txt`](docs/planning/README_먼저읽기.txt)부터 읽는 걸 권장합니다.
 
-평소엔 안 돌고 `seed.enabled=true`를 붙였을 때만 실행됨(`UserSeedRunner`).
+## 팀
 
-```powershell
-.\mvnw.cmd spring-boot:run -pl api "-Dspring-boot.run.profiles=local" "-Dspring-boot.run.arguments=--seed.enabled=true"
-```
-
-콘솔에 `done: 20000 users inserted + users_20000.json written`이 뜰 때까지 **끝까지 기다릴 것** — 중간에 끄면 일부만 들어간다. 완료되면 프로젝트 루트에 `users_20000.json`도 같이 생기는데, 이건 k6 부하테스트용(userId + idempotencyKey 목록)이다.
-
-## 5. 데이터 확인
-
-**CLI로**:
-```powershell
-docker exec -it mealiver-mysql mysql -u root -proot
-```
-```sql
-USE mealiverit;
-SELECT COUNT(*) FROM users;
-SELECT login_id, COUNT(*) FROM users GROUP BY login_id HAVING COUNT(*) > 1;  -- 0건이어야 정상
-```
-
-**GUI로**: DBeaver 등 설치해서 `localhost:3307`, `root`/`root`, DB `mealiverit`로 접속.
-
-## 6. 다 밀고 다시 하기 (초기화)
-
-`orders`가 `users`를 FK로 참조해서 그냥 TRUNCATE하면 에러 난다. FK 체크 잠깐 끄고 지울 것:
-
-```sql
-SET FOREIGN_KEY_CHECKS = 0;
-TRUNCATE TABLE users;
--- 다른 테이블도 지우려면 여기 추가: TRUNCATE TABLE orders; 등
-SET FOREIGN_KEY_CHECKS = 1;
-```
-
-컨테이너째로 완전히 밀고 싶으면:
-```powershell
-docker rm -f mealiver-mysql
-```
-그리고 2번부터 다시.
-
-## 7. 리모트(학원 서버) DB 연결
-
-로컬용과 별개로 `api/src/main/resources/application-remote.properties`가 이미 준비돼 있음(환경변수 참조, 비밀번호는 파일에 없음). 실행 전 팀 채널에서 실제 `DB_USER`/`DB_PASSWORD` 값을 확인해서 아래처럼 환경변수로 넣을 것 — **절대 코드에 직접 적지 말 것**.
-
-```powershell
-$env:DB_URL = "jdbc:mysql://100.125.247.64:3306/mealiver"
-$env:DB_USER = "<팀 채널에서 확인>"
-$env:DB_PASSWORD = "<팀 채널에서 확인>"
-
-.\mvnw.cmd spring-boot:run -pl api "-Dspring-boot.run.profiles=remote"
-```
-
-더미데이터까지 리모트에 넣으려면 마지막에 `"-Dspring-boot.run.arguments=--seed.enabled=true"` 붙이기 — 단, **공용 DB라 실행 전에 Adminer(`http://100.125.247.64:8081`, 서버 필드에 `mysql` 입력, 로그인 정보는 팀 채널 참고)로 `users` 건수부터 확인**. 이미 데이터가 있는데 또 20,000명 넣으면 `login_id` 중복으로 절반 넘게 실패한다.
-
-## 자주 만나는 에러
-
-| 증상 | 원인 | 해결 |
-|---|---|---|
-| `Could not find artifact com.mealiverit:entity:jar` | entity 모듈이 로컬 저장소에 없음 | `.\mvnw.cmd install -DskipTests` 먼저 실행 |
-| `Unable to find a suitable main class` | `-pl api -am`로 실행(run 골에 -am 쓰면 안 됨) | install은 `-am` 써도 되지만, `run`은 절대 `-am` 빼고 `-pl api`만 |
-| `ports are not available: ... 3306` | 로컬에 다른 MySQL/컨테이너가 3306 점유 중 | 다른 포트(3307 등)로 매핑, `application-local.properties`도 같이 수정 |
-| `Cannot truncate a table referenced in a foreign key constraint` | `orders`가 `users`를 FK로 참조 | `SET FOREIGN_KEY_CHECKS=0;` 후 TRUNCATE |
-| `docker: ... dockerDesktopLinuxEngine` | Docker Desktop이 안 켜져 있음 | Docker Desktop 실행하고 트레이 아이콘 안정될 때까지 대기 |
+팀명: 태진아 — U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"
