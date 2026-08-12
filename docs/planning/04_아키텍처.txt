@@ -226,25 +226,32 @@ public IssueResult issue(Long userId, Long campaignId, String idempotencyKey) {
         return IssueResult.alreadyProcessed(existing.get()); // 재요청도 동일 응답
     }
 
-    // 2) 멤버십 eligibility 체크 (회원 전용 쿠폰) — 재고 확보보다 먼저, 락 경합 유발하지 않음
+    // 2) 캠페인 OPEN 상태 체크 (FR-FCFS-031) — "캠페인 미오픈"은 품절/등급미달과 구분되는
+    //    별도 실패 사유다. READY(아직 시작 전)/CLOSED(이미 종료) 둘 다 발급 대상이 아니므로
+    //    OPEN만 통과시킨다. 실구현: [2026-08-12] campaign-not-open-check PR로 반영.
     Campaign campaign = campaignRepository.findById(campaignId).orElseThrow();
+    if (campaign.getStatus() != CampaignStatus.OPEN) {
+        throw new CampaignNotOpenException();
+    }
+
+    // 3) 멤버십 eligibility 체크 (회원 전용 쿠폰) — 재고 확보보다 먼저, 락 경합 유발하지 않음
     if (!campaign.isEligible(userMembershipTier(userId))) {
         throw new MembershipTierNotEligibleException();
     }
 
-    // 3) 재고 확보 (버전에 따라 DB 비관적락 / Redis Lua / Redis 이중카운터)
+    // 4) 재고 확보 (버전에 따라 DB 비관적락 / Redis Lua / Redis 이중카운터)
     boolean reserved = stockReservationService.reserve(campaignId);
     if (!reserved) throw new SoldOutException();
 
     try {
-        // 3-1) DB 조건부 UPDATE 백스톱 (4.2절) — Redis 상태 유실 시의 최종 총량 방어선.
+        // 4-1) DB 조건부 UPDATE 백스톱 (4.2절) — Redis 상태 유실 시의 최종 총량 방어선.
         //      Redis 게이트를 통과한 요청만 도달하므로 hot row 경합 없음.
         if (campaignRepository.decreaseStockIfAvailable(campaignId) == 0) {
             stockReservationService.rollback(campaignId);
             throw new SoldOutException();
         }
 
-        // 4) INSERT — uk_campaign_user, uk_idempotency_key 가 1인1매/중복요청 방어선
+        // 5) INSERT — uk_campaign_user, uk_idempotency_key 가 1인1매/중복요청 방어선
         //    발급 시점 계급을 스냅샷으로 함께 저장(검증쿼리 (e)가 이 값을 기준으로 판정)
         CouponIssue issue = CouponIssue.issuedNow(
             userId, campaignId, idempotencyKey, userTier, TierDiscountPolicy.rateFor(userTier));
@@ -283,7 +290,7 @@ public void use(Long couponIssueId, String requestId) {
 
 `MembershipTier` enum은 `PRIVATE < PFC < CORPORAL < SERGEANT` 순서를 가지며(이등병/일병/상병/병장, [09_기획서.md](./09_기획서.txt) 6절), `Campaign.isEligible(tier)`는 `min_membership_tier`가 NULL이면 항상 true, 아니면 `tier.ordinal() >= minMembershipTier.ordinal()`로 판정하는 순수 함수다.
 
-**동시성 전략과의 관계**: eligibility 체크는 5.1절 `issue()`의 2단계로, 재고 확보(락 획득) *이전에* 수행한다. 따라서 등급 미달 요청은 락 경합에 아예 진입하지 않고 즉시 거부되어, 전략 (a)/(c)/(f) 어느 버전을 쓰든 동시성 설계에 영향을 주지 않는다. `campaign.min_membership_tier`는 캠페인 생성 시 고정되는 값이라 `campaign` row 자체에 캐시해도 되고, Redis 게이트(전략 c/f) 채택 시에는 Lua script/이중카운터 INCR 진입 전 애플리케이션 레벨에서 먼저 걸러도 된다.
+**동시성 전략과의 관계**: eligibility 체크는 5.1절 `issue()`의 3단계(OPEN 상태 체크 다음)로, 재고 확보(락 획득) *이전에* 수행한다. 따라서 등급 미달 요청은 락 경합에 아예 진입하지 않고 즉시 거부되어, 전략 (a)/(c)/(f) 어느 버전을 쓰든 동시성 설계에 영향을 주지 않는다. `campaign.min_membership_tier`는 캠페인 생성 시 고정되는 값이라 `campaign` row 자체에 캐시해도 되고, Redis 게이트(전략 c/f) 채택 시에는 Lua script/이중카운터 INCR 진입 전 애플리케이션 레벨에서 먼저 걸러도 된다.
 
 ### 6.1 TierDiscountPolicy — 계급별 차등 할인율 (확정)
 
