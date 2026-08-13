@@ -8,7 +8,9 @@
 SELECT * FROM (
     SELECT c.id AS campaign_id,
            c.total_stock - c.remaining_stock AS counter_issued,
-           COALESCE(actual.issued_count, 0) AS issued_count
+           COALESCE(actual.issued_count, 0) AS issued_count,
+           c.remaining_stock AS remaining_stock,
+           c.total_stock - COALESCE(actual.issued_count, 0) AS expected_remaining
     FROM campaign c
     LEFT JOIN (
         SELECT campaign_id, COUNT(*) AS issued_count

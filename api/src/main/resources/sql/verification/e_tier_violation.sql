@@ -7,7 +7,9 @@
 
 SELECT ci.id, ci.user_id,
        ci.issued_membership_tier AS tier_at_issue,
-       c.min_membership_tier AS required_tier
+       c.min_membership_tier AS required_tier,
+       ci.campaign_id,
+       ci.issued_at
 FROM coupon_issue ci
 JOIN campaign c ON c.id = ci.campaign_id
 WHERE c.min_membership_tier IS NOT NULL
