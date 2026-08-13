@@ -154,6 +154,25 @@ class CouponIssuanceServiceTest {
                 .isEqualTo(stock - 1);
     }
 
+    @Test
+    void 동일_idempotencyKey_순차_재요청시_새_INSERT_없이_같은_쿠폰_반환() {
+        Long campaignId = createCampaign(50);
+        Long userId = createUsers(1).get(0);
+        String idempotencyKey = "sequential-retry-key";
+
+        IssueResult first = couponIssuanceService.issue(userId, campaignId, idempotencyKey);
+        IssueResult second = couponIssuanceService.issue(userId, campaignId, idempotencyKey);
+
+        assertThat(first.status()).isEqualTo(IssueResult.Status.SUCCESS);
+        assertThat(second.status()).isEqualTo(IssueResult.Status.ALREADY_PROCESSED);
+        // findByIdempotencyKey() fast-path로 곧장 반환되는지 — 같은 id/couponCode를 재사용해야
+        // 두 번째 호출이 DB에 새 row를 만들지 않고(재고를 또 깎지 않고) 그대로 반환했다는 뜻이다.
+        assertThat(second.couponIssue().getId()).isEqualTo(first.couponIssue().getId());
+        assertThat(second.couponIssue().getCouponCode()).isEqualTo(first.couponIssue().getCouponCode());
+        assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
+        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isEqualTo(49);
+    }
+
     private Long createCampaign(int stock) {
         Campaign campaign = new Campaign("테스트 캠페인", stock, null);
         campaign.open(LocalDateTime.now(), null);
