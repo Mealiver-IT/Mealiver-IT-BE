@@ -23,8 +23,9 @@ public class CouponController {
 
     //관리자용 쿠폰 강제 회수 (ISSUED→CANCELED)
     @PostMapping("/api/admin/coupons/{issueId}/revoke")
-    public ApiResponse<Void> revoke(@PathVariable Long issueId) {
-        couponIssueService.markCanceled(issueId);
+    public ApiResponse<Void> revoke(@PathVariable Long issueId,
+                                    @RequestHeader("Idempotency-Key") String requestId) {
+        couponIssueService.markCanceled(issueId, requestId);
         return ApiResponse.empty();
     }
 }
