@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 public record CouponIssueResponse(
         Long id,
         String couponCode,
+        String campaignName,
         DiscountType discountType,
         BigDecimal discountValue,
         BigDecimal maxDiscountAmount,
@@ -18,10 +19,11 @@ public record CouponIssueResponse(
         LocalDateTime validUntil
 ) {
 
-    public static CouponIssueResponse from(CouponIssue issue) {
+    public static CouponIssueResponse from(CouponIssue issue, String campaignName) {
         return new CouponIssueResponse(
                 issue.getId(),
                 issue.getCouponCode(),
+                campaignName,
                 issue.getDiscountType(),
                 issue.getDiscountValue(),
                 issue.getMaxDiscountAmount(),

@@ -1,5 +1,7 @@
 package com.mealiverit.api.batch;
 
+import net.javacrumbs.shedlock.core.LockAssert;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,7 +46,9 @@ public class CouponExpirationBatchJob {
     }
 
     @Scheduled(cron = "0 0 3 * * *") //매일 새벽 3시
+    @SchedulerLock(name = "couponExpirationBatchJob", lockAtLeastFor = "PT1M", lockAtMostFor = "PT30M")
     public void expireOverdueCoupons() {
+        LockAssert.assertLocked();
         run(LocalDateTime.now());
     }
 
