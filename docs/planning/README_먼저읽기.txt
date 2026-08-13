@@ -87,8 +87,7 @@ AI에게 작업을 시킬 때는 이 문서와 함께 필요한 문서를 첨부
   - DB 제약: uk_campaign_user, uk_idempotency_key, uk_coupon_code, uk_state_log_request, version 컬럼
   - Redis 구성: 마스터 단일 노드 (복제 미사용. 배민 빼빼로데이 반례가 근거)
   - 멤버십: 4단계 등급(이등병/일병/상병/병장), 계급별 차등 할인율 10/30/50%
-  - 취소 시 재고 복구: 하지 않음 (allow_reissue_on_cancel = false, 재고 카운터 전용 원칙)
-  - 취소된 쿠폰 본인 재사용: 허용 (2026-08-13 팀 결정, 재고 복구와는 별개 축 — 01_설계보완_검토안 3절 추가 결정)
+  - 취소 시 재고 복구: 하지 않음 (allow_reissue_on_cancel = false)
   - 프론트: 이벤트 페이지와 결제 페이지만 실제 동작. 나머지는 정적 mockup
   - 02_기능명세서_개정본 반영: coupon/coupon_issue에 max_discount_amount, coupon_issue.valid_until 추가,
       coupon_state_log.request_id 유니크 제약 추가 — 전부 06_ERD 반영 완료. 전체 FR이 G1/G2/G3 게이트로 매핑됨

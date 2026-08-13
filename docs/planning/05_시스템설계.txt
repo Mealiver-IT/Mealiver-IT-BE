@@ -69,16 +69,9 @@ WHERE ci.status <> 'ISSUED'  -- ISSUED는 최초상태이므로 로그 없어도
 -- 결과 0 rows 여야 함
 
 -- 허용되지 않은 전이가 로그에 기록된 적 있는지 (상태머신 우회 버그 탐지)
--- 주의: from_status는 nullable이라 (from_status, to_status) NOT IN (튜플 목록)을 그대로 쓰면
--- to_status가 허용값과 우연히 일치할 때 SQL 3값 논리(NULL 비교 → UNKNOWN)로 인해 해당 row가
--- WHERE에서 조용히 빠진다. COALESCE로 NULL을 실제 status와 안 겹치는 sentinel('\0')로
--- 치환해 비교한다. ISSUED는 최초상태라 to_status로 등장하면 안 되므로 허용 목록에
--- '\0|ISSUED' 항목을 추가하지 않는다.
 SELECT * FROM coupon_state_log
-WHERE CONCAT(COALESCE(from_status, '\0'), '|', to_status) NOT IN (
-    'ISSUED|USED', 'ISSUED|CANCELED', 'ISSUED|EXPIRED',
-    'USED|CANCELED',   -- 관리자 강제회수 (사용 여부 무관)
-    'USED|ISSUED'      -- 주문취소 시 본인 재사용 복귀 (2026-08-13 팀 결정, FR-CPS-002/004)
+WHERE (from_status, to_status) NOT IN (
+    ('ISSUED','USED'), ('ISSUED','CANCELED'), ('ISSUED','EXPIRED'), ('USED','CANCELED')
 )
 ORDER BY id;
 -- 결과 0 rows 여야 함
