@@ -82,10 +82,10 @@ public interface CampaignRepository extends JpaRepository<CampaignEntity, Long> 
 
 ```java
 @ExtendWith(MockitoExtension.class)
-class CouponIssuanceServiceTest {
+class CouponIssueServiceTest {
   @Mock CampaignRepository campaignRepository;
   @Mock CouponIssueRepository couponIssueRepository;
-  @InjectMocks CouponIssuanceService service;
+  @InjectMocks CouponIssueService service;
 
   @Test
   void 재고소진시_SoldOutException() {

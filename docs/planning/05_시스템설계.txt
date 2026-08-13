@@ -69,9 +69,16 @@ WHERE ci.status <> 'ISSUED'  -- ISSUED는 최초상태이므로 로그 없어도
 -- 결과 0 rows 여야 함
 
 -- 허용되지 않은 전이가 로그에 기록된 적 있는지 (상태머신 우회 버그 탐지)
+-- 주의: from_status는 nullable이라 (from_status, to_status) NOT IN (튜플 목록)을 그대로 쓰면
+-- to_status가 허용값과 우연히 일치할 때 SQL 3값 논리(NULL 비교 → UNKNOWN)로 인해 해당 row가
+-- WHERE에서 조용히 빠진다. COALESCE로 NULL을 실제 status와 안 겹치는 sentinel('\0')로
+-- 치환해 비교한다. ISSUED는 최초상태라 to_status로 등장하면 안 되므로 허용 목록에
+-- '\0|ISSUED' 항목을 추가하지 않는다.
 SELECT * FROM coupon_state_log
-WHERE (from_status, to_status) NOT IN (
-    ('ISSUED','USED'), ('ISSUED','CANCELED'), ('ISSUED','EXPIRED'), ('USED','CANCELED')
+WHERE CONCAT(COALESCE(from_status, '\0'), '|', to_status) NOT IN (
+    'ISSUED|USED', 'ISSUED|CANCELED', 'ISSUED|EXPIRED',
+    'USED|CANCELED',   -- 관리자 강제회수 (사용 여부 무관)
+    'USED|ISSUED'      -- 주문취소 시 본인 재사용 복귀 (2026-08-13 팀 결정, FR-CPS-002/004)
 )
 ORDER BY id;
 -- 결과 0 rows 여야 함
@@ -146,6 +153,8 @@ ORDER BY t.user_id;
 | **Spring Batch Job (`ConsistencyVerificationJob`)** | 정식 검증 리포트 생성, CI/데모 시 자동 실행, 결과를 별도 테이블/파일로 영속화 | 6가지 검증을 `Step` 단위(`stockCheckStep`, `duplicateCheckStep`, `counterSyncStep`, `stateTransitionStep`, `membershipEligibilityStep`, `tierConsistencyStep`)로 구성, `Chunk` 기반 `JdbcPagingItemReader`로 300만 건을 10,000건씩 페이징하여 읽고, `ItemProcessor`가 위반 여부 판정, `ItemWriter`가 `verification_result` 테이블에 위반 건만 적재. `BatchJobExecution` 메타테이블에 실행 이력이 자동으로 남아 감사 추적 가능. `tierConsistencyStep`은 계급 재산정을 수행하는 `MembershipTierBatchJob`([04_아키텍처.md](./04_아키텍처.txt) 6.2절)과는 별개 Job — 이쪽은 재산정 결과를 사후 검증만 한다 |
 
 **권장**: SQL 집계 쿼리를 1차 진단 도구로, Spring Batch Job을 "정식 자동화된 검증 리포트"로 이원화. MVP는 SQL만으로 요구사항(결정론적, 300만 건 전체, 재실행 동일결과)을 충족하고, Spring Batch는 선택 확장에서 "자동화 리포트"로 격상.
+
+위 6개 쿼리의 실행용 `.sql` 파일은 `api/src/main/resources/sql/verification/`에 있다(파일별 매핑은 그 폴더의 README 참고). 이 문서(설계)가 우선순위 원본이고, 내용이 갈리면 여기 기준으로 그 폴더를 고친다.
 
 **결정론성 보장 규칙**:
 - 검증 쿼리는 `NOW()`, `CURRENT_TIMESTAMP` 등 실행 시점 의존 조건을 쓰지 않는다.
@@ -263,37 +272,50 @@ public class MockNotificationSender implements NotificationSender {
 
 ### 5.1 시나리오 정의
 
+> **[멘토 확정 / 2026-08-12] "20,000명이 동시에 요청"의 공식 측정 조건 — 전 팀 공통, 임의 변경 불가**
+> - 테스트 유저: **20,000명 (중복 유저 없음)**
+> - 부하 프로파일: **ramp-up 60초** (즉시 스파이크가 아니라 0 → 20,000명까지 60초에 걸쳐 점증)
+> - 근거: `백엔드_종합프로젝트 주제 질문_멘토답변.pdf` 3-3) 답변. 상세 원문·다른 항목은 [12_멘토답변_확정사항.md](./12_멘토답변_확정사항.txt) 참고.
+> - 기존 계획(shared-iterations, maxDuration 30s, ramp 없음)은 이 조건과 달라 5.2를 아래와 같이 수정했다.
+
 | 항목 | 값 |
 |---|---|
 | 대상 캠페인 재고 | 10,000 |
-| 동시 요청 유저 수 | 20,000 (서로 다른 user_id — 재고초과와 1인1매를 분리 검증하기 위해 우선 유저 중복 없는 시나리오) |
-| 추가 시나리오 | 동일 유저가 짧은 시간 내 N회 중복 요청(예: 5,000명이 각 4회씩 재요청) → 1인 1매 검증 |
+| 동시 요청 유저 수 | 20,000명, **중복 없음**, **ramp-up 60초** (멘토 확정 공식 조건) — 재고초과와 1인1매를 분리 검증하기 위해 우선 유저 중복 없는 시나리오로 설계 |
+| 추가 시나리오 | 동일 유저가 짧은 시간 내 N회 중복 요청(예: 5,000명이 각 4회씩 재요청) → 1인 1매 검증. 이건 멘토 확정 조건의 "본 시나리오"가 아니라 부가 검증용이므로 결과표에서 구분 표기 |
 | 목표 | 성공 응답 수 == 10,000, 재고 초과 없음, DB row 수 == 10,000, 실패 응답(품절)은 명확한 4xx/도메인 에러코드로 구분 |
+| 심사 대응 | 심사위원이 이 부하테스트를 직접 실행해볼 수 있다고 확정 안내받음(멘토답변 4-1) — 초기화 스크립트 원커맨드화(03_버전사다리 6절)와 README 실행 가이드를 항상 최신 상태로 유지할 것 |
 
 ### 5.2 k6 스크립트 개요
 
+> 아래는 멘토 확정 조건(테스트 유저 20,000명 중복없음 / ramp-up 60초)을 반영한 버전이다.
+> `ramping-vus`로 0→20,000 VU를 60초에 걸쳐 점증시키고, VU 번호를 유저 인덱스에 1:1로 매핑해
+> 유저 중복 없이 "각 VU가 정확히 1회만 요청"하도록 만든다(요청 후 `sleep`으로 재반복 방지).
+
 ```javascript
 import http from 'k6/http';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { SharedArray } from 'k6/data';
 
 const users = new SharedArray('users', function () {
-  return JSON.parse(open('./users_20000.json')); // 사전 생성된 20,000명의 user_id + idempotency_key
+  return JSON.parse(open('./users_20000.json')); // 사전 생성된 20,000명의 user_id + idempotency_key (전원 서로 다른 유저)
 });
 
 export const options = {
   scenarios: {
     coupon_race: {
-      executor: 'shared-iterations',
-      vus: 2000,
-      iterations: 20000,   // 총 요청 수 = 재고의 2배
-      maxDuration: '30s',
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '60s', target: 20000 }, // 멘토 확정: ramp-up 60초, 테스트 유저 20,000명(중복 없음)
+      ],
+      gracefulRampDown: '10s',
     },
   },
 };
 
 export default function () {
-  const u = users[__ITER];
+  const u = users[__VU - 1]; // VU 번호(1~20000) = 유저 인덱스 → 유저 중복 없이 1:1 매핑
   const res = http.post(`${__ENV.BASE_URL}/api/campaigns/1/coupons`, JSON.stringify({}), {
     headers: {
       'Content-Type': 'application/json',
@@ -304,6 +326,7 @@ export default function () {
   check(res, {
     'status is 200 or 409': (r) => r.status === 200 || r.status === 409, // 409 = 품절/이미발급
   });
+  sleep(120); // 이 VU는 1회만 요청 — 60초 ramp 구간이 끝나기 전에 같은 VU가 재요청하지 않도록 충분히 대기
 }
 ```
 

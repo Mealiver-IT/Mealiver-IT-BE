@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<parent>
 		<groupId>com.mealiverit</groupId>
@@ -28,6 +28,10 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -59,6 +63,10 @@
 			<scope>test</scope>
 		</dependency>
 		<dependency>
+		    <groupId>com.fasterxml.jackson.core</groupId>
+		    <artifactId>jackson-databind</artifactId>
+		</dependency>
+		<dependency>
 			<!-- entity 모듈이 spring-boot-starter-data-jpa를 끌고 오면서 테스트 컨텍스트가 DataSource를 요구하게 됨.
 			     실제 MySQL 없이도 @SpringBootTest가 뜨도록 테스트 스코프에서만 임베디드 H2 사용. -->
 			<groupId>com.h2database</groupId>
@@ -83,6 +91,31 @@
 			<artifactId>mysql</artifactId>
 			<version>1.21.4</version>
 			<scope>test</scope>
+		</dependency>
+
+<!--	상태전이 낙관적 락 충돌 시 재시도(@Retryable)용	-->
+		<dependency>
+			<groupId>org.springframework.retry</groupId>
+			<artifactId>spring-retry</artifactId>
+			<version>2.0.13</version>
+		</dependency>
+		<dependency>
+<!--		@Retryable은 AOP 프록시로 동작하므로 필요	-->
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-aspects</artifactId>
+			<version>7.0.8</version>
+		</dependency>
+
+<!--	CouponExpirationBatchJob 중복실행 방지	-->
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-spring</artifactId>
+			<version>7.7.0</version>
+		</dependency>
+		<dependency>
+			<groupId>net.javacrumbs.shedlock</groupId>
+			<artifactId>shedlock-provider-jdbc-template</artifactId>
+			<version>7.7.0</version>
 		</dependency>
 	</dependencies>
 

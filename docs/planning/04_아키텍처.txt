@@ -119,7 +119,9 @@ public enum CouponStatus {
 
     private static final Map<CouponStatus, Set<CouponStatus>> TRANSITIONS = Map.of(
         ISSUED,   Set.of(USED, CANCELED, EXPIRED),
-        USED,     Set.of(CANCELED),   // 사용 후 취소(환불)만 허용, 그 외 역행 불가
+        // CANCELED: 관리자 강제회수 (사용 여부 무관) — 종단 상태 유지
+        // ISSUED:   주문취소(환불) 시 본인 재사용 가능 상태로 복귀 (2026-08-13 팀 결정)
+        USED,     Set.of(CANCELED, ISSUED),
         CANCELED, Set.of(),
         EXPIRED,  Set.of()
     );
@@ -129,6 +131,11 @@ public enum CouponStatus {
     }
 }
 ```
+
+**`USED → ISSUED` (2026-08-13 팀 결정, FR-CPS-002/004 반영).** 주문 취소/환불 시 사용된 쿠폰을 본인이 재사용 가능하도록 복귀시킨다. 설계상 유의점:
+- 관리자 강제회수(`markCanceled`, `USED→CANCELED`)와는 **다른 호출 경로**다 — 관리자 회수는 사용 여부와 무관하게 영구 종료시키는 것이고, 이건 주문취소로 인한 것만 대상이므로 별도 메서드로 구현해야 한다(같은 `markCanceled()`를 재사용하면 두 시나리오가 구분 안 됨).
+- 복귀 시점에 `valid_until` 경과 여부를 별도로 체크할 필요 없다 — `markUsed()`도 애초에 `valid_until`을 안 보고, 만료 판정은 전적으로 아래 야간 배치(`CouponExpirationBatchJob`)가 게으르게(lazy) 처리하는 구조이므로, `ISSUED`로 복귀한 뒤 이미 기간이 지났다면 다음 배치 실행 때 자연스럽게 `EXPIRED`로 처리된다. 따라서 `USED → EXPIRED` 직접 전이는 불필요.
+- 새 발급이 아니라 기존 `coupon_issue` row의 `status`만 되돌리는 것이므로 `Campaign.remainingStock`/`uk_campaign_user` 등 재고·중복발급 불변식과 무관하다(`allow_reissue_on_cancel=false`는 재고 카운터 전용 원칙이며 이 결정과는 별개 축 — 01_설계보완_검토안.md 3절 추가 결정 참고).
 
 **만료(EXPIRED) 트리거 방식 — 배치 채택(팀 결정).** `@Scheduled` 메서드 하나로 처리한다(`MembershipTierBatchJob`과 동일 패턴, 별도 배치 서버 불필요). 조회 시점에만 "만료로 간주"하는 가상판정 방식은 채택하지 않는다 — `coupon_state_log`에 실제 로그가 안 남아 FR-VRF-001 (d) 체인 연속성 검증이 성립하지 않기 때문이다(05_시스템설계.md 1.1 (d) 참고).
 
@@ -162,7 +169,7 @@ public enum CouponStatus {
 
 **V2.1 / 하드닝 최종(채택): (f) Redis 이중 카운터**
 - `countReq`(1차 저비용 필터) → `count`(2차 확정, 실패 시 자체 롤백) 구조로 Lua보다 가볍게 원자성 유지.
-- **countReq 조기소진 이슈**(1인1매 위반·idempotency 충돌로 죽는 요청도 `countReq`는 이미 소모)를 자체 발견·검증함. 초과발급 문제는 아니고 UX/공정성 문제로 확인, **C안(감수)** 채택 — 채점기준(초과발급 0건)이 이 케이스를 보지 않고, 메인 부하테스트 시나리오(서로 다른 유저 20,000명)에서는 애초에 발현 안 됨. 근거는 [리서치요약_쿠폰동시성사례.md](./리서치요약_쿠폰동시성사례.txt) 3절 참고.
+- **countReq 조기소진 이슈**(1인1매 위반·idempotency 충돌로 죽는 요청도 `countReq`는 이미 소모)를 자체 발견·검증함. 초과발급 문제는 아니고 UX/공정성 문제로 확인, **C안(감수)** 채택 — 채점기준(초과발급 0건)이 이 케이스를 보지 않고, 메인 부하테스트 시나리오(서로 다른 유저 20,000명, ramp-up 60초 — 멘토 확정 공식 조건)에서는 애초에 발현 안 됨. 근거는 [리서치요약_쿠폰동시성사례.md](./리서치요약_쿠폰동시성사례.txt) 3절 참고.
 - DB unique 제약(2절)이 최종 방어선인 것은 모든 버전에서 동일.
 
 **V3 / 검토 후 기각: 재고+중복 통합 Lua (알리바바 패턴)**
@@ -226,30 +233,32 @@ public IssueResult issue(Long userId, Long campaignId, String idempotencyKey) {
         return IssueResult.alreadyProcessed(existing.get()); // 재요청도 동일 응답
     }
 
-    // 2) 멤버십 eligibility 체크 (회원 전용 쿠폰) — 재고 확보보다 먼저, 락 경합 유발하지 않음
-    // ※ 이 순서는 V3/V4(Redis 게이트)에 해당. V2(DB 비관적 락)는 Campaign이 @Version 엔티티라
-    //   락 없는 findById()(eligibility용) 이후 락 있는 findByIdForUpdate()(재고 확보용)로 같은
-    //   row를 재조회하면 ObjectOptimisticLockingFailureException이 난다(동시성 테스트로 실측,
-    //   CouponIssueTransactionalOperations.issueNew() 참고). V2는 락 안에서 eligibility까지
-    //   함께 판정하도록 구현했다 — "락 이전 즉시 거부"라는 이상적 최적화를 포기한 트레이드오프.
+    // 2) 캠페인 OPEN 상태 체크 (FR-FCFS-031) — "캠페인 미오픈"은 품절/등급미달과 구분되는
+    //    별도 실패 사유다. READY(아직 시작 전)/CLOSED(이미 종료) 둘 다 발급 대상이 아니므로
+    //    OPEN만 통과시킨다. 실구현: [2026-08-12] campaign-not-open-check PR로 반영.
     Campaign campaign = campaignRepository.findById(campaignId).orElseThrow();
+    if (campaign.getStatus() != CampaignStatus.OPEN) {
+        throw new CampaignNotOpenException();
+    }
+
+    // 3) 멤버십 eligibility 체크 (회원 전용 쿠폰) — 재고 확보보다 먼저, 락 경합 유발하지 않음
     if (!campaign.isEligible(userMembershipTier(userId))) {
         throw new MembershipTierNotEligibleException();
     }
 
-    // 3) 재고 확보 (버전에 따라 DB 비관적락 / Redis Lua / Redis 이중카운터)
+    // 4) 재고 확보 (버전에 따라 DB 비관적락 / Redis Lua / Redis 이중카운터)
     boolean reserved = stockReservationService.reserve(campaignId);
     if (!reserved) throw new SoldOutException();
 
     try {
-        // 3-1) DB 조건부 UPDATE 백스톱 (4.2절) — Redis 상태 유실 시의 최종 총량 방어선.
+        // 4-1) DB 조건부 UPDATE 백스톱 (4.2절) — Redis 상태 유실 시의 최종 총량 방어선.
         //      Redis 게이트를 통과한 요청만 도달하므로 hot row 경합 없음.
         if (campaignRepository.decreaseStockIfAvailable(campaignId) == 0) {
             stockReservationService.rollback(campaignId);
             throw new SoldOutException();
         }
 
-        // 4) INSERT — uk_campaign_user, uk_idempotency_key 가 1인1매/중복요청 방어선
+        // 5) INSERT — uk_campaign_user, uk_idempotency_key 가 1인1매/중복요청 방어선
         //    발급 시점 계급을 스냅샷으로 함께 저장(검증쿼리 (e)가 이 값을 기준으로 판정)
         CouponIssue issue = CouponIssue.issuedNow(
             userId, campaignId, idempotencyKey, userTier, TierDiscountPolicy.rateFor(userTier));
@@ -288,7 +297,7 @@ public void use(Long couponIssueId, String requestId) {
 
 `MembershipTier` enum은 `PRIVATE < PFC < CORPORAL < SERGEANT` 순서를 가지며(이등병/일병/상병/병장, [09_기획서.md](./09_기획서.txt) 6절), `Campaign.isEligible(tier)`는 `min_membership_tier`가 NULL이면 항상 true, 아니면 `tier.ordinal() >= minMembershipTier.ordinal()`로 판정하는 순수 함수다.
 
-**동시성 전략과의 관계**: eligibility 체크는 5.1절 `issue()`의 2단계로, 재고 확보(락 획득) *이전에* 수행한다. 따라서 등급 미달 요청은 락 경합에 아예 진입하지 않고 즉시 거부되어, 전략 (a)/(c)/(f) 어느 버전을 쓰든 동시성 설계에 영향을 주지 않는다. `campaign.min_membership_tier`는 캠페인 생성 시 고정되는 값이라 `campaign` row 자체에 캐시해도 되고, Redis 게이트(전략 c/f) 채택 시에는 Lua script/이중카운터 INCR 진입 전 애플리케이션 레벨에서 먼저 걸러도 된다.
+**동시성 전략과의 관계**: eligibility 체크는 5.1절 `issue()`의 3단계(OPEN 상태 체크 다음)로, 재고 확보(락 획득) *이전에* 수행한다. 따라서 등급 미달 요청은 락 경합에 아예 진입하지 않고 즉시 거부되어, 전략 (a)/(c)/(f) 어느 버전을 쓰든 동시성 설계에 영향을 주지 않는다. `campaign.min_membership_tier`는 캠페인 생성 시 고정되는 값이라 `campaign` row 자체에 캐시해도 되고, Redis 게이트(전략 c/f) 채택 시에는 Lua script/이중카운터 INCR 진입 전 애플리케이션 레벨에서 먼저 걸러도 된다.
 
 ### 6.1 TierDiscountPolicy — 계급별 차등 할인율 (확정)
 

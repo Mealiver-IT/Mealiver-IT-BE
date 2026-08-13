@@ -4,6 +4,8 @@ import com.mealiverit.api.common.response.ApiResponse;
 import com.mealiverit.api.coupon.dto.CouponIssueResponse;
 import com.mealiverit.api.coupon.service.CouponIssuanceService;
 import com.mealiverit.api.coupon.service.IssueResult;
+import com.mealiverit.entity.campaign.Campaign;
+import com.mealiverit.entity.campaign.CampaignRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,9 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CouponClaimController {
 
     private final CouponIssuanceService couponIssuanceService;
+    private final CampaignRepository campaignRepository;
 
-    public CouponClaimController(CouponIssuanceService couponIssuanceService) {
+    public CouponClaimController(CouponIssuanceService couponIssuanceService, CampaignRepository campaignRepository) {
         this.couponIssuanceService = couponIssuanceService;
+        this.campaignRepository = campaignRepository;
     }
 
     @PostMapping("/api/campaigns/{campaignId}/coupons")
@@ -31,7 +35,8 @@ public class CouponClaimController {
             @RequestHeader("Idempotency-Key") String idempotencyKey) {
         IssueResult result = couponIssuanceService.issue(userId, campaignId, idempotencyKey);
         HttpStatus status = result.status() == IssueResult.Status.SUCCESS ? HttpStatus.CREATED : HttpStatus.OK;
+        String campaignName = campaignRepository.findById(campaignId).map(Campaign::getName).orElse(null);
         return ResponseEntity.status(status)
-                .body(ApiResponse.success(CouponIssueResponse.from(result.couponIssue())));
+                .body(ApiResponse.success(CouponIssueResponse.from(result.couponIssue(), campaignName)));
     }
 }

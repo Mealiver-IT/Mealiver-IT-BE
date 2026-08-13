@@ -16,7 +16,7 @@
 | 재시도 | spring-retry | 낙관적 락 충돌 시 재시도 |
 | 분산락 | Redisson | 검토 후 기각([04_아키텍처.md](./04_아키텍처.txt) 4.1절, Kleppmann fencing token 근거) — 미사용 |
 | 더미데이터 생성 | JdbcTemplate.batchUpdate + net.datafaker | 100만/300만 건 벌크 적재 |
-| 부하테스트 | k6 (예시, 도구 자유) | 10,000 vs 20,000 동시요청 시나리오 |
+| 부하테스트 | k6 (예시, 도구 자유) | 10,000 vs 20,000 동시요청 시나리오 (테스트 유저 20,000명 중복없음 / ramp-up 60초 — 멘토 확정 공식 조건) |
 | 테스트 | JUnit5, Testcontainers(MySQL/Redis) | 동시성 통합테스트 포함 |
 
 ## 2. 핵심 구현 파일 (그린필드 — 생성 예정 경로)
@@ -24,8 +24,7 @@
 - `src/main/resources/db/migration/V1__create_core_tables.sql` — User/Campaign/Coupon/CouponIssue/CouponStateLog 스키마 및 unique constraint 정의 (Flyway 기준)
 - `src/main/resources/db/migration/V2__create_order_tier_tables.sql` — Orders/MembershipTierLog 스키마 ([04_아키텍처.md](./04_아키텍처.txt) 1절)
 - `src/main/java/.../coupon/domain/CouponIssue.java` — 상태 머신, `@Version`, idempotency key를 포함한 핵심 엔터티
-- `src/main/java/.../coupon/service/CouponIssuanceService.java` — 발급(issue) 트랜잭션 로직, 동시성 전략의 실제 구현 지점
-- `src/main/java/.../coupon/service/CouponIssueService.java` — 상태전이(사용/취소/회수)·보유 쿠폰 조회. 이름이 비슷하지만 위 CouponIssuanceService와는 별개 클래스 — 병합 시 혼동 주의
+- `src/main/java/.../coupon/service/CouponIssueService.java` — 발급/상태전이 트랜잭션 로직, 동시성 전략의 실제 구현 지점
 - `src/main/java/.../batch/ConsistencyVerificationJob.java` — 정합성 검증 Spring Batch Job ([05_시스템설계.md](./05_시스템설계.txt) 1절)
 - `src/main/java/.../membership/batch/MembershipTierBatchJob.java` — 매월 1일 계급 재산정 배치 ([04_아키텍처.md](./04_아키텍처.txt) 6.2절)
 - `src/test/loadtest/coupon_race.js` — k6 부하테스트 스크립트
@@ -40,7 +39,7 @@
 | 단위 테스트 | 상태 머신(`CouponStatus.canTransitionTo`), 마스킹 시리얼라이저/컨버터 | JUnit5 | 허용되지 않은 전이가 예외를 던지는가, PII가 정규식대로 마스킹되는가 |
 | 통합 테스트 | 발급 API 동시성(`ExecutorService`로 스레드풀 100~1000개 동시 호출), idempotency key 중복요청 | JUnit5 + `@SpringBootTest` + Testcontainers(MySQL, Redis) | N개 동시요청 중 정확히 재고만큼만 성공하는가, 동일 idempotency key 재요청이 동일 결과를 반환하는가 |
 | 상태전이 동시성 테스트 | 동일 쿠폰에 대해 "사용"과 "취소"를 동시에 호출 | JUnit5 + `CountDownLatch`로 동시 실행 트리거 | 낙관적 락 충돌 시 재시도 후 정확히 하나의 최종 상태로 수렴하는가 |
-| 부하 테스트 | 10,000 vs 20,000 시나리오 | k6 | [05_시스템설계.md](./05_시스템설계.txt) 5절 지표 |
+| 부하 테스트 | 10,000 vs 20,000 시나리오 (ramp-up 60초, 유저 20,000명 중복없음) | k6 | [05_시스템설계.md](./05_시스템설계.txt) 5절 지표 |
 | 검증 배치 자체 테스트 | 오염 데이터(의도적 위반 샘플)를 심고 검증 쿼리/Job이 정확히 탐지하는가, 정상 데이터에는 false positive 없는가 | JUnit5(소규모 데이터셋) + 실 300만 건 수동 확인 | 결정론성(2회 연속 실행 결과 해시 동일) |
 
 ECC `testing.md`/`springboot-tdd` 기준 커버리지 80%+를 목표로 하되, 이 프로젝트는 커버리지 수치보다 **동시성 시나리오 테스트의 실효성**(실제로 경쟁 상황을 재현하는가)이 더 중요한 평가 축임에 유의. 코딩 표준·보안 체크리스트·검증 루프 상세는 [08_개발표준.md](./08_개발표준.txt) 참고.
