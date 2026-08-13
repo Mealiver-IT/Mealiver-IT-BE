@@ -2,6 +2,7 @@ package com.mealiverit.api.coupon.service;
 
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
+import com.mealiverit.api.coupon.notification.CouponIssuedEvent;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.CampaignStatus;
@@ -15,6 +16,7 @@ import com.mealiverit.entity.user.MembershipTier;
 import com.mealiverit.entity.user.User;
 import com.mealiverit.entity.user.UserRepository;
 import java.math.BigDecimal;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,17 +35,20 @@ class CouponIssuanceTransactionalOperations {
     private final CouponIssueRepository couponIssueRepository;
     private final UserRepository userRepository;
     private final StockReservationStrategy stockReservationStrategy;
+    private final ApplicationEventPublisher eventPublisher;
 
     CouponIssuanceTransactionalOperations(CampaignRepository campaignRepository,
                                            CouponRepository couponRepository,
                                            CouponIssueRepository couponIssueRepository,
                                            UserRepository userRepository,
-                                           StockReservationStrategy stockReservationStrategy) {
+                                           StockReservationStrategy stockReservationStrategy,
+                                           ApplicationEventPublisher eventPublisher) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.couponIssueRepository = couponIssueRepository;
         this.userRepository = userRepository;
         this.stockReservationStrategy = stockReservationStrategy;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -81,6 +86,10 @@ class CouponIssuanceTransactionalOperations {
         CouponIssue issue = CouponIssue.issue(campaignId, userId, idempotencyKey,
                 coupon, userTier, appliedDiscountValue);
         couponIssueRepository.save(issue);
+        // 신규 발급 성공 시(이 지점에 도달했다는 건 uk 제약 위반 없이 INSERT가 끝났다는 뜻)에만 발행.
+        // 발급 트랜잭션과 알림 발송을 분리하기 위한 이벤트 — 실제 발송은 CouponIssuedNotificationListener가
+        // 이 트랜잭션이 커밋된 뒤(@TransactionalEventListener AFTER_COMMIT)에만 수행한다.
+        eventPublisher.publishEvent(new CouponIssuedEvent(userId, issue.getCouponCode()));
         return IssueResult.success(issue);
     }
 
