@@ -85,6 +85,25 @@ public class CouponIssueService {
         couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
     }
 
+    //주문 취소 시 OrderService가 내부 호출. 별도 public API 없음
+    //requestId: 호출측(OrderService)이 재시도 시에도 동일하게 넘겨야 한느 멱등키
+    //동시 요청으로 인한 @Version 충돌 시 지수 백오프로 최대 3회 재시도
+    @Retryable(
+            retryFor = ConcurrencyFailureException.class,
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 100, multiplier = 2)
+    )
+    @Transactional
+    public void markReturnedToIssued(Long issueId, String requestId) {
+        if (couponStateLogRepository.existsByRequestId(requestId)) {
+            return; //이미 처리된 요청 - 재시도로 들어와도 아무것도 안하고 조용히 반환
+        }
+        CouponIssue issue = findIssueOrThrow(issueId);
+        CouponStatus before = issue.getStatus();
+        issue.markReturnedToIssued();
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
+    }
+
     private CouponIssue findIssueOrThrow(Long issueId) {
         return couponIssueRepository.findById(issueId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.COUPON_NOT_FOUND));

@@ -113,6 +113,15 @@ public class CouponIssue extends BaseTimeEntity {
         this.canceledAt = LocalDateTime.now();
     }
 
+    // 주문 취소 시 본인 재사용 가능하도록 복귀
+    // allow_reissue_on_cancel(재고 미복구)과는 별개 축 - 이 쿠폰 개별 건의 재사용 여부
+    // usedAt은 더 이상 유효하지 않으므로 초기화. valid_until은 발급 시점 스냅샷 그대로 유지
+    // 이미 기한이 지났으면 다음 만료 배치 (ISSUED -> EXPIRED)가 알아서 처리하므로 여기서 별도 체크 불필요
+    public void markReturnedToIssued() {
+        transitionTo(CouponStatus.ISSUED);
+        this.usedAt = null;
+    }
+
     // 만료 배치 전용 (04_아키텍처.txt 3절): UPDATE ... WHERE status='ISSUED' AND valid_until < now로
     // 스캔된 row에만 호출되므로 항상 ISSUED -> EXPIRED 전이만 발생한다.
     public void markExpired(LocalDateTime expiredAt) {
