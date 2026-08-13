@@ -63,6 +63,16 @@ public final class PiiMasker {
 
         return maskedLocal + domain;
     }
+    
+    // userId 자체는 PII는 아니지만(PiiMasker는 이름/전화/이메일만 다룸), 로그에 남는 식별값을
+    // 그대로 노출하지 않는다는 원칙(05_시스템설계.txt 3절)을 알림 로그에도 동일하게 적용한다.
+    public static String maskUserId(Long userId) {
+        String id = String.valueOf(userId);
+        if (id.length() <= 2) {
+            return "*".repeat(id.length());
+        }
+        return "*".repeat(id.length() - 2) + id.substring(id.length() - 2);
+    }
 
     private PiiMasker() {
     }
