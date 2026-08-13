@@ -71,6 +71,25 @@ class CouponIssueServiceIdempotencyTest {
         assertThat(logs).hasSize(1);
     }
 
+    @Test
+    void 동일_requestId로_markReturnedToIssued_두번_호출해도_한번만_반영() {
+        Long issueId = createUsedCoupon();
+        String requestId = "idem-" + UUID.randomUUID();
+
+        couponIssueService.markReturnedToIssued(issueId, requestId);
+        couponIssueService.markReturnedToIssued(issueId, requestId);
+
+        CouponIssue result = couponIssueRepository.findById(issueId).orElseThrow();
+        assertThat(result.getStatus()).isEqualTo(CouponStatus.ISSUED);
+        assertThat(result.getUsedAt()).isNull();
+
+        //로그 2건: (설정용) ISSUED -> USED 1건, markReturnedToIssued로 인한 USED -> ISSUED 1건
+        List<CouponStateLog> logs = couponStateLogRepository.findByCouponIssueIdOrderById(issueId);
+        assertThat(logs).hasSize(2);
+        assertThat(logs.get(1).getFromStatus()).isEqualTo(CouponStatus.USED);
+        assertThat(logs.get(1).getToStatus()).isEqualTo(CouponStatus.ISSUED);
+    }
+
     private Long createIssuedCoupon() {
         Campaign campaign = campaignRepository.save(new Campaign("멱등성 테스트 캠페인", 10, null));
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), DiscountType.FIXED, BigDecimal.valueOf(1000), null, null, 24));
@@ -83,5 +102,11 @@ class CouponIssueServiceIdempotencyTest {
                 "idem-issue-" + UUID.randomUUID(), coupon, MembershipTier.PRIVATE, BigDecimal.valueOf(1000));
 
         return couponIssueRepository.save(issue).getId();
+    }
+
+    private Long createUsedCoupon() {
+        Long issueId = createIssuedCoupon();
+        couponIssueService.markUsed(issueId, "idem-" + UUID.randomUUID());
+        return issueId;
     }
 }
