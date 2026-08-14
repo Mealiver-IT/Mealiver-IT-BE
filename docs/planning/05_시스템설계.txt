@@ -20,20 +20,15 @@ HAVING COUNT(ci.id) > c.total_stock
 ORDER BY c.id;
 -- 결과 0 rows 여야 함
 ```
-> 설계 판단: 재고는 "발급 성공 이벤트" 자체를 카운트한다. **`allow_reissue_on_cancel = false`(취소분 재고 미복구, 재고는 발급 이벤트 기준 단조감소)로 확정** — 재고 복구를 허용하면 "발급 총량 ≤ 재고" 불변식이 깨져 (a)/(c) 두 검증을 모두 재설계해야 하고, Redis 카운터 복구와 DB 상태전이 사이에 새로운 경쟁 상태가 생긴다. 과제 요구사항에 없는 복잡도이므로 **명시적 비목표**로 문서화한다([01_설계보완_검토안.md](./01_설계보완_검토안.txt) 3절).
+> 설계 판단: 재고는 "발급 성공 이벤트" 자체를 카운트한다. **`allow_reissue_on_cancel = false`(취소분 재고 미복구, 재고는 발급 이벤트 기준 단조감소)로 확정** — 재고 복구를 허용하면 "발급 총량 ≤ 재고" 불변식이 깨져 (a)/(b) 두 검증을 모두 재설계해야 하고, Redis 카운터 복구와 DB 상태전이 사이에 새로운 경쟁 상태가 생긴다. 과제 요구사항에 없는 복잡도이므로 **명시적 비목표**로 문서화한다([01_설계보완_검토안.md](./01_설계보완_검토안.txt) 3절).
 
-**(b) 유저당 캠페인별 중복 발급이 없는가**
+> **[설계 변경, 2026-08-14] 유저당 캠페인별 중복 발급 검증 쿼리를 제거한다.**
+> `coupon_issue`에는 `uk_campaign_user UNIQUE (campaign_id, user_id)` 제약이 걸려 있어(`V1__create_core_tables.sql`) 중복 발급 행 자체가 INSERT 단계에서 거부된다.
+> 애초 이 쿼리는 "제약 우회 경로 유무를 이중 확인"하는 안전망으로 설계됐으나, 우회 경로가 실제로 없는 한 검증 대상이 될 위반 표본 자체를 만들 수 없다.
+> 오염 데이터 삽입·탐지 시연에서 이 항목만 다른 방식(정상 INSERT가 유니크 제약에 막혀 실패하는 것 자체를 증거로 제시)을 써야 하므로, 나머지 5종과 같은 취급이 어려워 검증 쿼리 목록에서 뺀다.
+> 아래 (c)~(f)는 (b)~(e)로 한 칸씩 당긴다.
 
-```sql
-SELECT campaign_id, user_id, COUNT(*) AS cnt
-FROM coupon_issue
-GROUP BY campaign_id, user_id
-HAVING COUNT(*) > 1
-ORDER BY campaign_id, user_id;
--- 결과 0 rows 여야 함 (uk_campaign_user 로 원천 불가하지만, 제약 우회 경로 유무를 이중 확인)
-```
-
-**(c) 이력 테이블과 캠페인 카운터가 일치하는가**
+**(b) 이력 테이블과 캠페인 카운터가 일치하는가**
 
 ```sql
 SELECT * FROM (
@@ -55,7 +50,7 @@ ORDER BY t.campaign_id;
 >
 > **이 쿼리는 `campaign.remaining_stock`이 실제로 갱신되는 컬럼일 때만 의미가 있다.** V2.1(Redis 이중 카운터)에서 재고 판정 권한이 Redis로 이동하면 이 컬럼이 방치되어 검증이 공허해지므로, [04_아키텍처.md](./04_아키텍처.txt) 4.2절의 **DB 조건부 UPDATE 백스톱**이 이 컬럼을 계속 갱신하는 주체가 된다(미결항목 "`remaining_stock` 실사용 여부" 해소).
 
-**(d) 상태전이가 유효한가**
+**(c) 상태전이가 유효한가**
 
 ```sql
 -- 일반화: 현재 상태로 이어지는 로그가 하나도 없는 레코드 전체 탐지
@@ -98,7 +93,7 @@ ORDER BY coupon_issue_id, id;
 -- 결과 0 rows 여야 함. id는 AUTO_INCREMENT라 삽입 순서 = 전이 순서로 간주
 ```
 
-**(e) 회원 전용 쿠폰이 등급 미달 유저에게 발급된 적이 없는가** ([09_기획서.md](./09_기획서.txt) 6.3절, [04_아키텍처.md](./04_아키텍처.txt) 6절)
+**(d) 회원 전용 쿠폰이 등급 미달 유저에게 발급된 적이 없는가** ([09_기획서.md](./09_기획서.txt) 6.3절, [04_아키텍처.md](./04_아키텍처.txt) 6절)
 
 ```sql
 SELECT ci.id, ci.user_id,
@@ -112,11 +107,11 @@ WHERE c.min_membership_tier IS NOT NULL
 ORDER BY ci.id;
 -- 결과 0 rows 여야 함. FIELD()로 등급 순서를 정수 인덱스처럼 비교(PRIVATE=1 < ... < SERGEANT=4)
 ```
-> ⚠️ **`users.membership_tier`(현재 계급)와 비교하면 안 된다.** 계급은 `MembershipTierBatchJob`이 매월 재산정하는 **변동값**이므로, 발급 당시 병장이었다가 이후 상병으로 강등된 유저가 **정상 발급인데도 위반으로 잡히는 false positive**가 발생한다. 검증 결과가 배치 실행 시점에 따라 달라지므로 결정론성 규칙((f)의 `NOW()` 금지와 동일한 문제)도 함께 깨진다.
+> ⚠️ **`users.membership_tier`(현재 계급)와 비교하면 안 된다.** 계급은 `MembershipTierBatchJob`이 매월 재산정하는 **변동값**이므로, 발급 당시 병장이었다가 이후 상병으로 강등된 유저가 **정상 발급인데도 위반으로 잡히는 false positive**가 발생한다. 검증 결과가 배치 실행 시점에 따라 달라지므로 결정론성 규칙((e)의 `NOW()` 금지와 동일한 문제)도 함께 깨진다.
 >
 > 해결: `coupon_issue`에 **발급 시점 계급 스냅샷 컬럼 `issued_membership_tier`를 추가**한다([04_아키텍처.md](./04_아키텍처.txt) 1절). 이미 `discount_type`/`discount_value`를 같은 이유로 스냅샷하고 있으므로 기존 패턴의 확장이며, 컬럼 1개 추가로 끝난다.
 
-**(f) 계급이 orders 집계와 일치하는가** ([09_기획서.md](./09_기획서.txt) 6.2절, [04_아키텍처.md](./04_아키텍처.txt) 6.2절)
+**(e) 계급이 orders 집계와 일치하는가** ([09_기획서.md](./09_기획서.txt) 6.2절, [04_아키텍처.md](./04_아키텍처.txt) 6.2절)
 
 ```sql
 -- <월시작>/<월종료>는 대상 배치 실행분의 tier_calculated_at이 속한 캘린더 월 경계로 고정(NOW() 사용 금지 — 결정론성 규칙)
@@ -149,18 +144,18 @@ ORDER BY t.user_id;
 
 | 구분 | 용도 | 이유 |
 |---|---|---|
-| **순수 SQL 집계 쿼리(위 6개)** | 개발 중 수시 실행, 부하테스트 직후 즉시 검증 | 인덱스(`campaign_id`, `(campaign_id,user_id)`, `coupon_issue_id`, `(user_id,status,completed_at)`)만 잘 걸리면 300만 건도 수 초~수십 초 내 완결. 별도 배치 인프라 없이 재현 가능. "재실행 시 동일 결과"를 가장 단순하게 증명(같은 쿼리, 같은 데이터 → 같은 결과는 SQL의 기본 속성) |
-| **Spring Batch Job (`ConsistencyVerificationJob`)** | 정식 검증 리포트 생성, CI/데모 시 자동 실행, 결과를 별도 테이블/파일로 영속화 | 6가지 검증을 `Step` 단위(`stockCheckStep`, `duplicateCheckStep`, `counterSyncStep`, `stateTransitionStep`, `membershipEligibilityStep`, `tierConsistencyStep`)로 구성, `Chunk` 기반 `JdbcPagingItemReader`로 300만 건을 10,000건씩 페이징하여 읽고, `ItemProcessor`가 위반 여부 판정, `ItemWriter`가 `verification_result` 테이블에 위반 건만 적재. `BatchJobExecution` 메타테이블에 실행 이력이 자동으로 남아 감사 추적 가능. `tierConsistencyStep`은 계급 재산정을 수행하는 `MembershipTierBatchJob`([04_아키텍처.md](./04_아키텍처.txt) 6.2절)과는 별개 Job — 이쪽은 재산정 결과를 사후 검증만 한다 |
+| **순수 SQL 집계 쿼리(위 5가지 검증, 7개 파일)** | 개발 중 수시 실행, 부하테스트 직후 즉시 검증 | 인덱스(`campaign_id`, `(campaign_id,user_id)`, `coupon_issue_id`, `(user_id,status,completed_at)`)만 잘 걸리면 300만 건도 수 초~수십 초 내 완결. 별도 배치 인프라 없이 재현 가능. "재실행 시 동일 결과"를 가장 단순하게 증명(같은 쿼리, 같은 데이터 → 같은 결과는 SQL의 기본 속성) |
+| **Spring Batch Job (`ConsistencyVerificationJob`)** | 정식 검증 리포트 생성, CI/데모 시 자동 실행, 결과를 별도 테이블/파일로 영속화 | 5가지 검증을 `Step` 단위(`stockCheckStep`, `counterSyncStep`, `stateTransitionStep`, `membershipEligibilityStep`, `tierConsistencyStep`)로 구성, `Chunk` 기반 `JdbcPagingItemReader`로 300만 건을 10,000건씩 페이징하여 읽고, `ItemProcessor`가 위반 여부 판정, `ItemWriter`가 `verification_result` 테이블에 위반 건만 적재. `BatchJobExecution` 메타테이블에 실행 이력이 자동으로 남아 감사 추적 가능. `tierConsistencyStep`은 계급 재산정을 수행하는 `MembershipTierBatchJob`([04_아키텍처.md](./04_아키텍처.txt) 6.2절)과는 별개 Job — 이쪽은 재산정 결과를 사후 검증만 한다 |
 
 **권장**: SQL 집계 쿼리를 1차 진단 도구로, Spring Batch Job을 "정식 자동화된 검증 리포트"로 이원화. MVP는 SQL만으로 요구사항(결정론적, 300만 건 전체, 재실행 동일결과)을 충족하고, Spring Batch는 선택 확장에서 "자동화 리포트"로 격상.
 
-위 6개 쿼리의 실행용 `.sql` 파일은 `api/src/main/resources/sql/verification/`에 있다(파일별 매핑은 그 폴더의 README 참고). 이 문서(설계)가 우선순위 원본이고, 내용이 갈리면 여기 기준으로 그 폴더를 고친다.
+위 5가지 검증의 실행용 `.sql` 파일(7개)은 `api/src/main/resources/sql/verification/`에 있다(파일별 매핑은 그 폴더의 README 참고). 이 문서(설계)가 우선순위 원본이고, 내용이 갈리면 여기 기준으로 그 폴더를 고친다.
 
 **결정론성 보장 규칙**:
 - 검증 쿼리는 `NOW()`, `CURRENT_TIMESTAMP` 등 실행 시점 의존 조건을 쓰지 않는다.
-- **시간에 따라 변하는 값(`users.membership_tier` 등)과 비교하지 않고, 발급 시점 스냅샷 컬럼과 비교한다.** `NOW()` 금지와 같은 원칙의 다른 표현 — 조건절에 시각이 없어도 **참조 대상이 변동값이면 결과는 실행 시점에 따라 달라진다**((e) 참고).
+- **시간에 따라 변하는 값(`users.membership_tier` 등)과 비교하지 않고, 발급 시점 스냅샷 컬럼과 비교한다.** `NOW()` 금지와 같은 원칙의 다른 표현 — 조건절에 시각이 없어도 **참조 대상이 변동값이면 결과는 실행 시점에 따라 달라진다**((d) 참고).
 - **모든 검증 쿼리에 `ORDER BY`를 명시한다.** SQL은 `ORDER BY` 없이는 행 순서를 보장하지 않으므로, 같은 데이터에서도 실행 계획/버퍼 상태에 따라 순서가 뒤바뀌어 **결과 해시가 달라질 수 있다.** 스크립트에서 정렬하더라도 SQL 레벨에서 고정해 두는 편이 안전하다.
-- **탐지 누락(false negative)을 만드는 `INNER JOIN`을 쓰지 않는다.** 위반 케이스는 대개 "있어야 할 행이 없는" 형태로 나타나는데, `INNER JOIN`은 정확히 그 행을 결과에서 제거한다((c)(f) 참고).
+- **탐지 누락(false negative)을 만드는 `INNER JOIN`을 쓰지 않는다.** 위반 케이스는 대개 "있어야 할 행이 없는" 형태로 나타나는데, `INNER JOIN`은 정확히 그 행을 결과에서 제거한다((b)(e) 참고).
 - 검증 스크립트는 결과셋을 정렬 후 JSON 직렬화 → SHA-256 해시하여 "이전 실행 해시와 동일한가"로 재실행 동일성을 기계적으로 확인한다.
 
 ## 2. 더미데이터 생성 계획

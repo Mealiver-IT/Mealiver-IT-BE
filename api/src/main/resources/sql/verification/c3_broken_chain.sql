@@ -1,4 +1,4 @@
--- d-3) 로그 체인이 끊기지 않는가 (직전 로그의 to_status == 다음 로그의 from_status)
+-- c-3) 로그 체인이 끊기지 않는가 (직전 로그의 to_status == 다음 로그의 from_status)
 -- 위 두 쿼리는 "각 로그가 개별적으로 유효한가"만 보므로,
 -- ISSUED→USED 다음에 ISSUED→CANCELED 가 기록된 케이스(각각은 유효하지만 이어붙이면 모순)를 못 잡는다.
 SELECT id, coupon_issue_id, from_status, to_status, prev_to_status

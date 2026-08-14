@@ -1,5 +1,5 @@
--- (c) 이력 테이블과 캠페인 카운터가 일치하는가
--- 설계 근거: docs/planning/05_시스템설계.txt 1.1절 (c)
+-- (b) 이력 테이블과 캠페인 카운터가 일치하는가
+-- 설계 근거: docs/planning/05_시스템설계.txt 1.1절 (b)
 -- 결과: 0 rows 여야 함. Redis 카운터 전략이면 stock:{campaignId}:remaining 값도 별도 스크립트로 비교
 --
 -- 주의: LEFT JOIN 필수. INNER JOIN으로 쓰면 발급 이력이 0건인 캠페인이 조인에서 탈락해
