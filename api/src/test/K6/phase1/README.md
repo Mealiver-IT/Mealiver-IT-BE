@@ -51,6 +51,28 @@ PATCH /api/campaigns/{id}/status
 {"status": "OPEN"}
 ```
 
+## users_20000.json 재생성
+
+`api/users_20000.json`(k6 부하테스트용 고정 유저 20,000명 목록)은 `.gitignore`에 걸려 있어 커밋되지 않습니다. 필요하면 아래 스크립트로 로컬에서 바로 재생성하세요 — DB 접속 불필요, 표준 라이브러리만 씁니다.
+
+```bash
+python api/src/test/K6/phase1/generate_users_20000.py
+```
+
+출력 필드:
+
+| 필드 | 용도 |
+|---|---|
+| `id` | **`X-User-Id` 헤더에 이 값을 써야 함** (숫자, `Long` 파싱 필수 — 위 스펙 참고) |
+| `loginId` | 참고/로깅용 (`users.login_id`, API에는 안 씀) |
+| `idempotencyKey` | `Idempotency-Key` 헤더 |
+
+`loginId="userN"` → `id=N+1` 매핑을 가정합니다(100만 유저 시더가 `users` 테이블에 가장 먼저, 순서대로 넣기 때문). 2026-08-14 로컬/리모트 DB 둘 다 이 매핑이 일치하는 것을 확인했지만, 이후 시딩 순서가 바뀌면 깨질 수 있으니 재생성 전에 아래로 한 번 더 확인하는 걸 권장합니다.
+
+```sql
+SELECT login_id, id FROM users WHERE login_id IN ('user0','user1','user19999');
+```
+
 ## 실행 시 주의
 
 - `userId`는 반드시 숫자 문자열(`${__VU}` 등)로 보내야 합니다 — `user-1-0` 같은 비숫자 값은 `Long` 파싱에서 400으로 깨집니다.
