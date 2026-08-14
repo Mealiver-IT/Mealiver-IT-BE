@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mealiverit.api.coupon.service.CouponIssuanceService;
 import com.mealiverit.api.common.exception.BusinessException;
+import com.mealiverit.api.notification.NotificationSender;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.coupon.DiscountType;
