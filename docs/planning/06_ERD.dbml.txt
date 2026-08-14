@@ -73,7 +73,7 @@ Table coupon_issue {
   discount_type varchar [not null, note: 'ENUM: FIXED, RATE — 발급 시점 스냅샷']
   discount_value decimal [not null, note: '발급 시점 계급별 할인율/금액 스냅샷(04_아키텍처.md 6.1절 TierDiscountPolicy). 이후 계급 변동과 무관하게 불변']
   max_discount_amount decimal [note: '발급 시점 한도 스냅샷. discount_value와 동일 원칙 (FR-CPN-002, 02_기능명세서_개정본 15절)']
-  issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(e)가 users.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
+  issued_membership_tier membership_tier [not null, note: '발급 시점 유저 계급 스냅샷. 검증쿼리(d)가 users.membership_tier(변동값) 대신 이 값으로 판정해야 계급 재산정 후 false positive가 없음']
   status varchar [not null, note: 'ENUM: ISSUED, USED, CANCELED, EXPIRED']
   idempotency_key varchar [not null, unique, note: '발급 요청 중복 방지 키']
   issued_at datetime [not null]
