@@ -53,7 +53,7 @@ PATCH /api/campaigns/{id}/status
 
 ## users_20000.json 재생성
 
-`api/users_20000.json`(k6 부하테스트용 고정 유저 20,000명 목록)은 `.gitignore`에 걸려 있어 커밋되지 않습니다. 필요하면 아래 스크립트로 로컬에서 바로 재생성하세요 — DB 접속 불필요, 표준 라이브러리만 씁니다.
+`api/users_20000.json`(k6 부하테스트용 고정 유저 20,000명 목록)은 `.gitignore`에 걸려 있어 커밋되지 않습니다. 필요하면 아래 스크립트로 로컬에서 바로 재생성하세요.
 
 ```bash
 python api/src/test/K6/phase1/generate_users_20000.py
@@ -67,11 +67,11 @@ python api/src/test/K6/phase1/generate_users_20000.py
 | `loginId` | 참고/로깅용 (`users.login_id`, API에는 안 씀) |
 | `idempotencyKey` | `Idempotency-Key` 헤더 |
 
-`loginId="userN"` → `id=N+1` 매핑을 가정합니다(100만 유저 시더가 `users` 테이블에 가장 먼저, 순서대로 넣기 때문). 2026-08-14 로컬/리모트 DB 둘 다 이 매핑이 일치하는 것을 확인했지만, 이후 시딩 순서가 바뀌면 깨질 수 있으니 재생성 전에 아래로 한 번 더 확인하는 걸 권장합니다.
+`loginId="userN"` → `id=N+1` 매핑을 가정합니다(100만 유저 시더가 `users` 테이블에 가장 먼저, 순서대로 넣기 때문). **이 가정이 실제와 다를 수 있어서(시딩 순서가 바뀌었거나, 로컬/리모트가 다르게 리셋됐거나) 스크립트가 파일을 쓰기 전에 매번 실제 DB에 대고 자동으로 확인합니다** — `user0`/`user{count-1}`의 실제 `id`를 조회해서 예상과 다르면 파일을 쓰지 않고 에러로 중단합니다.
 
-```sql
-SELECT login_id, id FROM users WHERE login_id IN ('user0','user1','user19999');
-```
+- 기본은 로컬 DB(`docker exec mealiver-mysql`)로 검증합니다. Docker Desktop이 떠 있어야 합니다.
+- 리모트로 검증하려면: `python generate_users_20000.py --host 100.125.247.64 --port 3306 --user mealiver --password mealiver1234 --database mealiver`
+- Docker가 없어서 검증을 못 하는 환경이면 `--skip-verify`로 건너뛸 수 있습니다(이 경우 매핑이 틀렸을 수도 있다는 걸 감수하는 것).
 
 ## 실행 시 주의
 
