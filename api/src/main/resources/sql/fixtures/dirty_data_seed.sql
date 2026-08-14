@@ -14,7 +14,8 @@
 --   e_tier_orders_mismatch.sql   → 100 rows (dirty_user_e_001~100)
 --
 -- 재실행하려면 먼저 dirty_data_cleanup.sql을 실행할 것 (unique 제약 때문에 중복 실행 시 에러).
--- MySQL 8.0 기준 (재귀 CTE 사용).
+-- MySQL 8.0 기준 (재귀 CTE 사용). 주의: MySQL은 `WITH RECURSIVE ... INSERT INTO ...` 순서를
+-- 허용하지 않는다 — 반드시 `INSERT INTO t WITH RECURSIVE ... SELECT ...` 순서여야 한다.
 -- ============================================================================
 
 
@@ -23,12 +24,12 @@
 --    캠페인이 케이스별로 분리되어 있어 같은 유저를 여러 캠페인에 재사용해도
 --    uk_campaign_user(campaign_id, user_id)에 안 걸린다.
 -- ----------------------------------------------------------------------------
+INSERT INTO users (login_id, name, phone, email, membership_tier, tier_calculated_at, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO users (login_id, name, phone, email, membership_tier, tier_calculated_at, created_at)
 SELECT
     CONCAT('dirty_user_', LPAD(n, 3, '0')),
     CONCAT('오염테스트유저', n),
@@ -49,14 +50,14 @@ FROM seq;
 INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 VALUES ('DIRTY_A_초과발급', 0, -100, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 HOUR), 'CLOSED', NULL, 0);
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
 )
 SELECT
     (SELECT id FROM campaign WHERE name = 'DIRTY_A_초과발급'),
@@ -77,12 +78,12 @@ JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 -- 주장)으로 세팅해두고, 실제로는 1건씩만 발급해 캠페인당 정확히 1건의 불일치를 낸다.
 -- (총 100개 캠페인 = 검증쿼리 결과 100 rows)
 -- ----------------------------------------------------------------------------
+INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 SELECT
     CONCAT('DIRTY_B_', LPAD(n, 3, '0')),
     10, 10,
@@ -90,14 +91,14 @@ SELECT
     'CLOSED', NULL, 0
 FROM seq;
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
 )
 SELECT
     c.id,
@@ -120,14 +121,14 @@ JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 VALUES ('DIRTY_C1_로그누락', 1000, 900, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 HOUR), 'CLOSED', NULL, 0);
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, used_at, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, used_at, version, created_at, updated_at
 )
 SELECT
     (SELECT id FROM campaign WHERE name = 'DIRTY_C1_로그누락'),
@@ -153,14 +154,14 @@ JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 VALUES ('DIRTY_C2_상태역행', 1000, 900, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 HOUR), 'CLOSED', NULL, 0);
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, used_at, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, used_at, version, created_at, updated_at
 )
 SELECT
     (SELECT id FROM campaign WHERE name = 'DIRTY_C2_상태역행'),
@@ -175,22 +176,22 @@ FROM seq
 JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 
 -- 로그 1/2 (id 순서가 전이 순서로 간주되므로 반드시 두 번의 INSERT로 나눈다)
+INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 SELECT ci.id, 'ISSUED', 'CANCELED', CONCAT('DIRTY-C2-REQ1-', LPAD(seq.n, 3, '0')), NOW()
 FROM seq
 JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C2-IK-', LPAD(seq.n, 3, '0'));
 
+INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 SELECT ci.id, 'CANCELED', 'USED', CONCAT('DIRTY-C2-REQ2-', LPAD(seq.n, 3, '0')), NOW()
 FROM seq
 JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C2-IK-', LPAD(seq.n, 3, '0'));
@@ -207,14 +208,14 @@ JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C2-IK-', LPAD(seq.n, 
 INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 VALUES ('DIRTY_C3_체인단절', 1000, 900, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 HOUR), 'CLOSED', NULL, 0);
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, canceled_at, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, canceled_at, version, created_at, updated_at
 )
 SELECT
     (SELECT id FROM campaign WHERE name = 'DIRTY_C3_체인단절'),
@@ -228,22 +229,22 @@ SELECT
 FROM seq
 JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 
+INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 SELECT ci.id, 'ISSUED', 'USED', CONCAT('DIRTY-C3-REQ1-', LPAD(seq.n, 3, '0')), NOW()
 FROM seq
 JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C3-IK-', LPAD(seq.n, 3, '0'));
 
+INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at)
 SELECT ci.id, 'ISSUED', 'CANCELED', CONCAT('DIRTY-C3-REQ2-', LPAD(seq.n, 3, '0')), NOW()
 FROM seq
 JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C3-IK-', LPAD(seq.n, 3, '0'));
@@ -259,14 +260,14 @@ JOIN coupon_issue ci ON ci.idempotency_key = CONCAT('DIRTY-C3-IK-', LPAD(seq.n, 
 INSERT INTO campaign (name, total_stock, remaining_stock, open_at, close_at, status, min_membership_tier, version)
 VALUES ('DIRTY_D_등급위반', 1000, 900, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 HOUR), 'CLOSED', 'SERGEANT', 0);
 
+INSERT INTO coupon_issue (
+    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
+    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
+)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
-)
-INSERT INTO coupon_issue (
-    campaign_id, user_id, coupon_code, discount_type, discount_value, max_discount_amount,
-    issued_membership_tier, status, idempotency_key, issued_at, valid_until, version, created_at, updated_at
 )
 SELECT
     (SELECT id FROM campaign WHERE name = 'DIRTY_D_등급위반'),
@@ -287,12 +288,12 @@ JOIN users u ON u.login_id = CONCAT('dirty_user_', LPAD(seq.n, 3, '0'));
 -- 어느 월 구간을 잡아도 주문 0건이므로 expected_tier='PRIVATE'와 항상 어긋난다.
 -- (공용 유저 풀을 안 건드려서 다른 케이스와 완전히 격리)
 -- ============================================================================
+INSERT INTO users (login_id, name, phone, email, membership_tier, tier_calculated_at, created_at)
 WITH RECURSIVE seq AS (
     SELECT 1 AS n
     UNION ALL
     SELECT n + 1 FROM seq WHERE n < 100
 )
-INSERT INTO users (login_id, name, phone, email, membership_tier, tier_calculated_at, created_at)
 SELECT
     CONCAT('dirty_user_e_', LPAD(n, 3, '0')),
     CONCAT('오염테스트유저E', n),
