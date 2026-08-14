@@ -25,7 +25,6 @@
    - [더미데이터 파이프라인](#6-6-더미데이터-파이프라인)
 7. [인프라 & 배포](#7-인프라--배포)
 8. [트러블슈팅](#8-트러블슈팅)
-9. [AI 협업 개발 방식](#9-ai-협업-개발-방식)
 
 ---
 
@@ -44,7 +43,7 @@ U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, 
 | 목표 | 해결 기술 |
 |---|---|
 | 재고 10,000장·동시요청 20,000건에도 초과발급 0건, 1인 1매 | DB unique 제약 + 비관적 락(MVP) → Redis 이중 카운터(하드닝, 설계 확정) |
-| 300만 건 발급이력 전체에 대한 결정론적 정합성 자기검증 | 재실행 시 동일 결과가 나오는 검증 SQL 5종 + Spring Batch (설계 완료) |
+| 300만 건 발급이력 전체에 대한 결정론적 정합성 자기검증 | 재실행 시 동일 결과가 나오는 검증 SQL 5종(구현·실행 완료) + Spring Batch 자동화(Phase 2 선택 확장) |
 | 회원 등급별 차등 혜택 (이등병~병장 4단계) | 완료 주문 수 기준 매월 1일 자동 재산정 배치 |
 | 100만 유저·300만 발급이력 규모 실증 | 청크 배치 시더 + `rewriteBatchedStatements` 기반 대량 적재 파이프라인 |
 
@@ -62,7 +61,7 @@ U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, 
 
 | 역할 | 이름 | 담당 도메인 |
 |---|---|---|
-| 동시성/발급 API — 발급 로직 | 김어진 | `CouponIssueService`, 재고 예약 전략(비관적 락 → Redis 이중 카운터) |
+| 동시성/발급 API — 발급 로직 | 김어진 | `CouponIssuanceService`, 재고 예약 전략(비관적 락 → Redis 이중 카운터) |
 | 동시성/발급 API — 상태전이 로직 | 이진희 | 상태전이 API, 상태 머신, idempotency |
 | 데이터/검증배치 — 더미데이터 생성 | 윤태형 | 더미데이터 시더(유저/오더/등급/캠페인/발급이력) |
 | 데이터/검증배치 — 검증 SQL·배치 + PII 마스킹 | 정민주 | 정합성 검증 배치(`ConsistencyVerificationJob`), PII 마스킹 컨버터/시리얼라이저 |
@@ -79,7 +78,8 @@ U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, 
 |---|---|
 | 언어 / 프레임워크 | ![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=for-the-badge&logo=springboot&logoColor=white) ![Maven](https://img.shields.io/badge/Maven-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white) |
 | ORM | ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-59666C?style=for-the-badge&logo=hibernate&logoColor=white) |
-| 배치 | Spring `@Scheduled` (등급 재산정), Spring Batch (정합성 검증 리포트 — 설계 완료, 구현 예정) |
+| 배치 | Spring `@Scheduled` + ShedLock(분산락) — 등급 재산정(`MembershipTierBatchJob`), 쿠폰 만료(`CouponExpirationBatchJob`) 구현 완료. 정합성 검증 자동화(`ConsistencyVerificationJob`, Spring Batch)는 Phase 2 선택 확장 |
+| 재시도 / 이벤트 | ![Spring Retry](https://img.shields.io/badge/Spring%20Retry-6DB33F?style=for-the-badge&logo=spring&logoColor=white) 상태전이 동시성 재시도, `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 기반 알림 분리 |
 | 분산 캐시 / 락 | ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white) — 이중 카운터 기반 재고 게이트 (설계 완료, 연동 예정) |
 
 ### Database
@@ -97,12 +97,6 @@ U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, 
 | 원격 DB | Tailscale로 연결되는 팀 공유 MySQL (학원 공용 서버) |
 | CI | GitHub Actions — `main` 브랜치 push 시 Docker 이미지 빌드 후 GHCR에 푸시 |
 
-### 협업 도구
-
-| 분류 | 도구 |
-|---|---|
-| AI 개발 도구 | ![Claude](https://img.shields.io/badge/Claude-AI%20Pair%20Programming-D97757?style=for-the-badge&logo=anthropic&logoColor=white) |
-
 ---
 
 ## 4. 시스템 아키텍처
@@ -112,8 +106,17 @@ U+ 백엔드 과제 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, 
         │ REST
         ▼
 [Spring Boot Application]
-   ├─ Controller / Service 계층 (발급·캠페인 API)   ── 추후 작성
-   ├─ Batch    : MembershipTierBatchJob (매월 1일 등급 재산정)
+   ├─ Controller / Service 계층
+   │    ├─ CouponClaimController : 선착순 발급 (POST /api/campaigns/{id}/coupons, Idempotency-Key 헤더 필수)
+   │    │    └─ CouponIssuanceService → StockReservationStrategy (V1: 비관적 락 구현체)
+   │    ├─ CouponController      : 내 발급 쿠폰 조회, 관리자 강제회수(revoke)
+   │    │    └─ CouponIssueService (상태전이: markUsed/markCanceled/markReturnedToIssued)
+   │    ├─ OrderController       : 주문 생성(결제완료 시 쿠폰 사용 처리) / 취소(쿠폰 본인 재사용 복귀)
+   │    └─ CampaignController    : 캠페인 CRUD (관리자용)
+   ├─ Notification : CouponIssuedEvent → @TransactionalEventListener(AFTER_COMMIT) + @Async
+   │                  → MockNotificationSender (발급 트랜잭션과 완전 분리, FR-NOT-001)
+   ├─ Batch    : MembershipTierBatchJob (매월 1일 등급 재산정), CouponExpirationBatchJob (쿠폰 만료)
+   │             — 둘 다 ShedLock으로 다중 인스턴스 중복실행 방지
    ├─ Seed     : UserSeedRunner → OrderSeedRunner → MembershipTierSeedRunner
    │             → CampaignSeedRunner → CouponIssueSeedRunner (더미데이터 파이프라인)
    │
@@ -162,25 +165,35 @@ Redis 연동 — 추후 작성
 
 ### 6-1. 동시성 제어 — 선착순 발급
 
-> 설계 완료, 구현 예정 — 아래는 확정된 설계입니다 (`docs/planning/04_아키텍처.txt` 4절).
+> **V1.0 MVP 구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 4절).
 
 재고 초과 방지를 위한 6가지 전략을 비교한 뒤, **3단계 버전사다리**로 가기로 확정했습니다.
 
-| 전략 | 정합성 | 처리량 | 인프라 의존성 |
-|---|---|---|---|
-| (a) DB unique + 비관적 락 | 강함 (row lock 완전 직렬화) | 낮음 (hot row 경합) | MySQL만 |
-| (c) Redis Lua script 게이트 | 강함 | 높음 | Redis 필수 |
-| (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 |
+| 전략 | 정합성 | 처리량 | 인프라 의존성 | 채택 여부 |
+|---|---|---|---|---|
+| (a) DB unique + 비관적 락 (`SELECT ... FOR UPDATE`) | 강함 (row lock 완전 직렬화) | 낮음 (hot row 경합) | MySQL만 | **V1.0 MVP로 구현 완료** (`PessimisticLockStockReservationStrategy`) |
+| (b) DB unique + 낙관적 락/재시도 (`@Version`) | 강함이나 재시도 로직 필수 | 중간 (경합 심하면 재시도 폭증) | MySQL만 | 채택 안 함 — (a)가 동일 목표를 더 단순하게 달성 |
+| (c) Redis 원자적 감소(Lua script) 게이트 | 강함(단일 스레드 원자성) | 높음 | Redis 필수 | **V2.0 하드닝 1단계** — 설계 완료, 연동 예정 (검토 후 (f)로 대체 예정) |
+| (d) Redis + Kafka 비동기 분리 | 강함 + eventual consistency | 매우 높음 | Redis + Kafka | 선택 확장으로 보류 — eventual consistency가 "즉시 정합성 검증" 평가 포인트와 설명 부담이 큼 |
+| (e) Redisson 분산락 (`RLock`) | 강함 (캠페인 단위 락) | 낮음~중간 | Redis 필수 | 기각 — fencing token 부재(Kleppmann, 2016)로 정합성 목적에 부적합 |
+| (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 | **V2.1 최종 채택** — 설계 완료, 연동 예정 |
 
-**확정 로드맵**: `V1.0 MVP = (a) 비관적 락` → `V2.0 = (c) Redis Lua (검토 후 대체)` → `V2.1 최종 채택 = (f) Redis 이중 카운터`.
+**확정 로드맵**: `V1.0 MVP = (a) 비관적 락` → `V2.0 = (c) Redis Lua (검토 후 대체)` → `V2.1 최종 채택 = (f) Redis 이중 카운터`. `StockReservationStrategy` 인터페이스로 전략을 분리해 두어, V2 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
-Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비해 방어선 2겹을 추가로 둡니다: 발급 트랜잭션 안에서 실행되는 **DB 조건부 UPDATE 백스톱**(`UPDATE campaign SET remaining_stock = remaining_stock - 1 WHERE id = ? AND remaining_stock > 0`)과, 앱 기동/Redis 복구 시 DB 실제 발급 수를 기준으로 Redis 카운터를 재동기화하는 **멱등한 워밍업 함수**입니다.
+Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비해 방어선 2겹을 추가로 둘 예정입니다: 발급 트랜잭션 안에서 실행되는 **DB 조건부 UPDATE 백스톱**(`UPDATE campaign SET remaining_stock = remaining_stock - 1 WHERE id = ? AND remaining_stock > 0`)과, 앱 기동/Redis 복구 시 DB 실제 발급 수를 기준으로 Redis 카운터를 재동기화하는 **멱등한 워밍업 함수**입니다.
+
+**k6 부하테스트 리허설 결과** (`api/src/test/K6/phase1/`):
+
+| 시나리오 | 조건 | 결과 |
+|---|---|---|
+| Phase 1 리허설 (`phase1-rehearsal.js`) | 재고 100장 vs 요청 50건 | 2026-08-12 실행 완료 — 초과발급 없이 **50/50 전원 발급 성공** |
+| Phase 3 본시험 (`coupon_race.js`) | 유저 20,000명, ramp-up 60초 | 코드 완료. 2026-08-12 1차 시도했으나 로컬 PC TCP 소켓 한계로 결과 신뢰 불가 — 환경 교체(WSL2 등) 후 재시도 예정 |
 
 ---
 
 ### 6-2. 쿠폰 상태 머신
 
-`ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. 허용 전이 목록은 엔티티 레벨에 구현·테스트 완료되어 있습니다.
+`ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. `USED → ISSUED`(주문취소 시 본인 재사용 복귀)만 예외적으로 허용됩니다(2026-08-13 팀 결정). 허용 전이 목록은 엔티티 레벨에 구현·테스트 완료되어 있습니다.
 
 ```java
 public enum CouponStatus {
@@ -188,7 +201,7 @@ public enum CouponStatus {
 
     private static final Map<CouponStatus, Set<CouponStatus>> TRANSITIONS = Map.of(
             ISSUED, Set.of(USED, CANCELED, EXPIRED),
-            USED, Set.of(CANCELED),   // 사용 후 취소(환불)만 허용, 그 외 역행 불가
+            USED, Set.of(CANCELED, ISSUED),   // CANCELED = 관리자 강제회수, ISSUED = 주문취소 시 재사용 복귀
             CANCELED, Set.of(),
             EXPIRED, Set.of()
     );
@@ -199,16 +212,40 @@ public enum CouponStatus {
 }
 ```
 
-상태전이 API 자체(`CouponController`, `CouponIssueService`)는 추후 작성입니다.
+**상태별 의미**
+
+| 상태 | 의미 |
+|---|---|
+| `ISSUED` | 발급 직후의 기본 상태. 사용 가능한 쿠폰(발급 API 성공 시의 최초 상태이자, 아래 `USED → ISSUED`로 복귀했을 때의 상태이기도 함) |
+| `USED` | 주문에 쿠폰을 적용해 결제가 완료된 상태 (`OrderService`가 결제완료 처리 중 `markUsed` 호출) |
+| `CANCELED` | **종단 상태.** 관리자가 강제로 회수한 상태(`CouponController`의 관리자 revoke API). 사용 여부와 무관하게 `ISSUED`/`USED` 둘 다에서 전이 가능하며, 이후 어떤 상태로도 전이 불가 |
+| `EXPIRED` | **종단 상태.** 유효기간(`valid_until`)이 지나 `CouponExpirationBatchJob`이 자동으로 처리한 상태. 이후 어떤 상태로도 전이 불가 |
+
+**전이별 의미**
+
+- `ISSUED → USED` : 사용자가 결제 시 쿠폰을 적용
+- `ISSUED → CANCELED` : 아직 안 쓴 쿠폰을 관리자가 강제 회수
+- `ISSUED → EXPIRED` : 유효기간이 지나도록 안 쓴 쿠폰을 만료 배치가 자동 처리
+- `USED → CANCELED` : 이미 사용한 쿠폰도 관리자가 강제 회수 가능(사용 여부와 무관하게 회수 권한은 유지)
+- `USED → ISSUED` : 쿠폰이 적용된 주문을 취소하면, 본인이 그 쿠폰을 다시 쓸 수 있도록 `ISSUED`로 복귀시킨다 (2026-08-13 팀 결정, `OrderService`의 주문취소 처리 중 `markReturnedToIssued` 호출)
+- `USED → EXPIRED` : **의도적으로 불허.** `ISSUED`로 복귀시킨 뒤 유효기간이 지났으면 만료 배치가 알아서 처리하므로, `USED`에서 직접 `EXPIRED`로 보내는 별도 경로는 불필요
+
+**상태전이 API 구현 완료** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
+
+- `markUsed` — `OrderService`가 결제완료(`POST /api/orders`) 처리 중 내부 호출
+- `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
+- `markCanceled` — `CouponController`의 관리자 강제회수(`POST /api/admin/coupons/{issueId}/revoke`)에서 호출
+- 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException}, maxAttempts = 3)`로 지수 백오프 재시도 (자세한 경위는 [트러블슈팅 ⑤](#8-트러블슈팅) 참고)
 
 ---
 
 ### 6-3. Idempotency 설계
 
-> 설계 완료, 구현 예정 — 아래는 확정된 설계입니다 (`docs/planning/04_아키텍처.txt` 5절).
+> **구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 5절).
 
-- **발급**: 클라이언트가 매 요청마다 `Idempotency-Key`를 전송, `coupon_issue.idempotency_key`의 UNIQUE 제약으로 동일 키 재요청을 DB가 거부. 재고 확보(Redis) → DB 조건부 UPDATE 백스톱 → INSERT 순서로, `DataIntegrityViolationException` 발생 시 재고를 원복하고 기존 레코드를 그대로 반환.
-- **상태전이(사용/취소/만료)**: `request_id` 기준으로 `coupon_state_log`에 동일 요청 처리 여부를 먼저 확인. `@Version`(낙관적 락)으로 동시 상태변경 요청 중 하나만 성공시키고, 나머지는 `spring-retry`로 재시도 후 최신 상태 기준 재판정.
+- **발급**: 클라이언트가 매 요청마다 `Idempotency-Key` 헤더를 전송, `coupon_issue.idempotency_key`의 UNIQUE 제약으로 동일 키 재요청을 DB가 거부. 재요청 시 `201`이 아닌 `200`과 기존 발급 결과를 그대로 반환(k6 리허설 스펙으로 검증 완료). Redis 도입 전인 V1.0에서는 비관적 락(row lock)이 재고 확보를 담당.
+- **상태전이(사용/취소/만료)**: 호출측(`OrderService`)이 재시도 시에도 동일하게 넘기는 `requestId`를 `coupon_state_log`의 `uk_state_log_request` UNIQUE 제약으로 걸어 동일 요청의 중복 처리를 DB 레벨에서 차단. `@Version`(낙관적 락)과 유니크 제약 경합 모두 `@Retryable`로 최대 3회 지수 백오프 재시도.
+- 동일 `requestId`로 100개 동시 재전송하는 통합테스트(`CouponIssueServiceConcurrencyTest`)로, 예외 없이 전부 성공하고 상태전이 로그는 정확히 1건만 남는지 검증했습니다.
 
 ---
 
@@ -231,9 +268,11 @@ public enum CouponStatus {
 
 ### 6-5. 정합성 자기검증
 
-> 설계 완료, 구현 예정 (Phase 2) — 아래는 확정된 설계입니다 (`docs/planning/05_시스템설계.txt` 1절).
+> **검증 SQL 구현·실행 완료**, Spring Batch 자동화는 Phase 2 선택 확장 — 아래는 확정된 설계입니다 (`docs/planning/05_시스템설계.txt` 1절).
 
-300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종을 설계했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증, 멤버십 등급 eligibility 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증 등 5가지를 `Step` 단위 Spring Batch Job(`ConsistencyVerificationJob`)으로 이원화할 계획입니다. 오염 데이터(초과발급/카운터불일치/상태역행/등급위반)를 의도적으로 삽입해 검증 배치가 실제로 위반을 탐지하는지 증명하는 것까지 포함됩니다. 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
+300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종(파일 7개)을 `api/src/main/resources/sql/verification/`에 작성해 실제 데이터로 실행 완료했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증(3개 쿼리), 멤버십 등급 eligibility 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증. **전 항목 0 rows 확인**(폴더 [README](api/src/main/resources/sql/verification/README.md) 참고). 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
+
+현재는 MySQL 클라이언트로 수동 실행하며, `Step` 단위 Spring Batch Job(`ConsistencyVerificationJob`)으로 자동화하고 오염 데이터(초과발급/카운터불일치/상태역행/등급위반)를 의도적으로 삽입해 검증 배치가 실제로 위반을 탐지하는지 증명하는 것은 Phase 2 선택 확장입니다.
 
 ---
 
@@ -294,17 +333,18 @@ UserSeedRunner → OrderSeedRunner → MembershipTierSeedRunner → CampaignSeed
 **원인**: 발급 코드당 `UUID.randomUUID()`를 2회(쿠폰코드, idempotency key) 호출했는데, 내부적으로 `SecureRandom`을 사용해 대량 생성 시 눈에 띄게 느림(특히 Windows 환경).
 **해결**: 암호학적 안전성이 필요 없는 시드 데이터 특성을 고려해, `ThreadLocalRandom`으로 128비트를 직접 채워 `UUID`를 구성하는 방식으로 교체.
 
----
+### ⑤ 동일 requestId 동시 재전송 시 9%가 500 에러
 
-## 9. AI 협업 개발 방식
+**문제**: 상태전이 동시성 통합테스트(`동일_requestId로_100개_동시요청해도_전부_성공하고_상태전이는_한번만`)에서 100개 중 약 9개가 500 에러로 실패.
+**원인**: `markUsed`/`markCanceled`/`markReturnedToIssued`의 `@Retryable`이 낙관적 락 충돌(`ConcurrencyFailureException`)만 재시도 대상으로 잡고 있었음. 그런데 `existsByRequestId` 체크와 `save()` 사이의 race window에서 여러 스레드가 동시에 통과하면 `coupon_state_log.uk_state_log_request` 유니크 제약 위반(`DataIntegrityViolationException`)이 발생하는데, 이 예외는 재시도 대상이 아니어서 그대로 실패 응답이 나감.
+**해결**: `retryFor`에 `DataIntegrityViolationException`을 추가([PR #42](https://github.com/Mealiver-IT/Mealiver-IT-BE/pull/42)). 재시도 시 이미 처리된 요청이므로 최신 상태 기준으로 재판정되어 멱등하게 성공 처리됨.
 
-이번 프로젝트의 데이터/검증배치 파트는 **Claude**(Cowork)를 페어 프로그래밍 형태로 활용해 개발했습니다.
+### ⑥ GitHub "Squash and merge"로 dev/main 히스토리가 반복적으로 갈라짐
 
-- `MembershipTierBatchJob`, 5단계 더미데이터 시더 체인 등 배치/시더 코드의 설계·구현
-- 성능 이슈 발견 시 `SHOW FULL PROCESSLIST` 등 실측 근거를 함께 확인하며 원인 진단 및 수정 (위 트러블슈팅 ①~④)
-- 로컬 100만 유저 / 리모트 환경 각각에서의 검증, PR 설명·문서(본 README 포함) 작성
-
-AI가 제안한 코드는 실제 실행 로그·쿼리 결과로 검증한 뒤에만 반영했습니다.
+**문제**: `dev`를 `main`으로 병합하는 PR을 열 때마다 "Can't automatically merge"가 반복 발생 — 한 번 해소해도 다음 PR에서 똑같이 재발.
+**원인**: `git cat-file -p <merge-sha>`로 직접 커밋 오브젝트를 열어보니 parent가 1개뿐 — GitHub의 **"Squash and merge"**가 원본 커밋들을 요약한 새 커밋 하나만 만들고, 원본 SHA는 히스토리에서 사라지는 방식이었음. 이 때문에 `dev`와 `main`이 파일 내용은 같아도 git 입장에서는 공통 조상(merge-base)이 계속 어긋나는 서로 다른 히스토리로 보임 — 병합할 때마다 재발하는 구조적 문제.
+**부수 발견**: merge-base가 어긋나면 3-way merge가 **파일 리네임/삭제를 놓치는 경우**도 있음 — `git ls-files`(현재 트리)와 `git ls-tree -r origin/dev --name-only`(목표 트리)를 `comm`으로 비교해, 이름이 바뀐 뒤에도 구버전 파일이 orphan으로 남아있는 걸 찾아 정리.
+**해결**: 병합 시 **"Create a merge commit"**을 선택하도록 통일(원본 SHA를 부모로 보존하는 방식이라 재발하지 않음). `git merge --no-commit --no-ff`로 로컬에서 먼저 충돌을 전부 검토·해소한 뒤 커밋·푸시.
 
 ---
 
