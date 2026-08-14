@@ -62,7 +62,7 @@ CouponIssue (발급 이력 = 상태 관리 핵심 테이블, 300만 건 대상)
  ├─ discount_type (ENUM: FIXED, RATE)  -- 발급 시점 스냅샷
  ├─ discount_value (DECIMAL)           -- 발급 시점 계급으로 확정된 실제 할인율/금액 스냅샷. 이후 유저 계급이 바뀌어도 이 값은 불변(FR-FCFS-002)
  ├─ max_discount_amount (DECIMAL, NULLABLE)  -- 발급 시점 한도 스냅샷. discount_value와 동일 원칙 (FR-CPN-002)
- ├─ issued_membership_tier (ENUM)      -- 발급 시점 유저 계급 스냅샷. eligibility 검증쿼리(e)가 현재 계급이 아닌 이 값을 기준으로 판정해야 계급 재산정 후에도 false positive가 없음 (05_시스템설계.md 1.1 (e) 참고)
+ ├─ issued_membership_tier (ENUM)      -- 발급 시점 유저 계급 스냅샷. eligibility 검증쿼리(d)가 현재 계급이 아닌 이 값을 기준으로 판정해야 계급 재산정 후에도 false positive가 없음 (05_시스템설계.md 1.1 (d) 참고)
  ├─ status (ENUM: ISSUED, USED, CANCELED, EXPIRED)
  ├─ idempotency_key (VARCHAR, UNIQUE)  -- 발급 요청 중복 방지 키
  ├─ issued_at (DATETIME NOT NULL)
@@ -201,7 +201,7 @@ UPDATE campaign
 
 발급 트랜잭션 안에서 `coupon_issue` INSERT와 **같은 트랜잭션**으로 실행한다. 핵심은 **이 UPDATE에 도달하는 요청은 이미 Redis 게이트를 통과한 요청뿐**이라는 점 — 20,000건이 아니라 최대 재고 수량만큼만 도달하므로, V1에서 문제였던 hot row 경합이 여기서는 발생하지 않는다. Redis가 정상일 때는 사실상 항상 성공하는 no-op에 가깝고, Redis가 상태를 잃었을 때만 실제로 작동하는 안전망이다.
 
-부수 효과로 **미결항목이던 `campaign.remaining_stock`의 용도가 확정된다.** 이 컬럼을 아무도 갱신하지 않으면 검증 쿼리 (c)(이력 vs 카운터 대사)가 공허해지는데, 백스톱이 이 컬럼의 갱신 주체가 되면서 (c)가 실질적인 검증이 된다.
+부수 효과로 **미결항목이던 `campaign.remaining_stock`의 용도가 확정된다.** 이 컬럼을 아무도 갱신하지 않으면 검증 쿼리 (b)(이력 vs 카운터 대사)가 공허해지는데, 백스톱이 이 컬럼의 갱신 주체가 되면서 (b)가 실질적인 검증이 된다.
 
 **② 기동/복구 시 DB 기준 워밍업 (멱등)**
 
@@ -216,7 +216,7 @@ public void warmUp(Long campaignId) {
 
 선택확장의 "오픈 순간 Redis 재고 캐시 워밍업"과 같은 함수를 **멱등한 복구 함수로 설계해 그대로 재사용**한다. 별도 기능이 아니라 하나의 함수에 호출 시점이 둘인 구조.
 
-**데모 시나리오가 이렇게 바뀐다**: 부하테스트 중 Redis를 강제 종료 → DB 백스톱이 총량을 잡아 초과발급 0건 유지 → Redis 재기동 → 워밍업이 DB 실제 발급 수 기준으로 카운터 재동기화 → 검증 쿼리 (a)(c) 위반 0건. **"장애를 주입했는데도 0건"이 실제로 성립한다.**
+**데모 시나리오가 이렇게 바뀐다**: 부하테스트 중 Redis를 강제 종료 → DB 백스톱이 총량을 잡아 초과발급 0건 유지 → Redis 재기동 → 워밍업이 DB 실제 발급 수 기준으로 카운터 재동기화 → 검증 쿼리 (a)(b) 위반 0건. **"장애를 주입했는데도 0건"이 실제로 성립한다.**
 
 ## 5. Idempotency 설계
 
@@ -259,7 +259,7 @@ public IssueResult issue(Long userId, Long campaignId, String idempotencyKey) {
         }
 
         // 5) INSERT — uk_campaign_user, uk_idempotency_key 가 1인1매/중복요청 방어선
-        //    발급 시점 계급을 스냅샷으로 함께 저장(검증쿼리 (e)가 이 값을 기준으로 판정)
+        //    발급 시점 계급을 스냅샷으로 함께 저장(검증쿼리 (d)가 이 값을 기준으로 판정)
         CouponIssue issue = CouponIssue.issuedNow(
             userId, campaignId, idempotencyKey, userTier, TierDiscountPolicy.rateFor(userTier));
         couponIssueRepository.save(issue);

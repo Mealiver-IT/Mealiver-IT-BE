@@ -112,58 +112,64 @@ public class CouponIssueSeedRunner implements CommandLineRunner {
             // 남은 만큼만 이어서 채운다 (이미 발급받은 유저는 uk_campaign_user 위반 방지를 위해 제외).
             Integer existingObj = jdbcTemplate.queryForObject(COUNT_EXISTING_ISSUES_SQL, Integer.class, campaign.id);
             int existing = existingObj == null ? 0 : existingObj;
-            if (partial && existing > 0) {
-                log.info("campaign[{}] skip (partial, 이미 발급이력 {}건 존재)", campaign.id, existing);
-                continue;
-            }
-            if (!partial && existing >= campaign.totalStock) {
-                log.info("campaign[{}] skip (이미 완판, {}건)", campaign.id, existing);
-                continue;
-            }
 
-            CouponRow coupon = jdbcTemplate.queryForObject(SELECT_COUPON_SQL, couponRowMapper(), campaign.id);
+            // 버그 수정(2026-08-13): 예전엔 skip 판정 시 곧장 continue해서, insert는 끝났는데
+            // 아래 campaign.remaining_stock UPDATE 전에 프로세스가 죽은 경우 재실행해도 카운터를
+            // 영원히 못 고쳤다(campaign_id=16 실사고 — insert 145,000건은 남았는데 카운터는 0건인
+            // 채로 방치됨). 이제는 skip이어도 issueCount=0으로 두고 아래 카운터 동기화 블록까지
+            // 항상 통과시킨다 — 이미 값이 맞으면 UPDATE가 그냥 no-op이라 안전하다.
+            int issueCount = 0;
+            boolean skip = (partial && existing > 0) || (!partial && existing >= campaign.totalStock);
 
-            Set<Long> alreadyIssuedUserIds = existing > 0
-                ? new HashSet<>(jdbcTemplate.queryForList(SELECT_ISSUED_USER_IDS_SQL, Long.class, campaign.id))
-                : Set.of();
+            if (skip) {
+                log.info("campaign[{}] skip insert ({}), 이미 발급이력 {}건 — 카운터만 동기화",
+                    campaign.id, partial ? "partial" : "완판", existing);
+            } else {
+                CouponRow coupon = jdbcTemplate.queryForObject(SELECT_COUPON_SQL, couponRowMapper(), campaign.id);
 
-            List<UserRow> eligible = users.stream()
-                .filter(u -> campaign.minTier == null || u.tier.ordinal() >= campaign.minTier.ordinal())
-                .filter(u -> !alreadyIssuedUserIds.contains(u.id))
-                .collect(Collectors.toCollection(ArrayList::new));
-            Collections.shuffle(eligible, new Random(random.nextLong()));
+                Set<Long> alreadyIssuedUserIds = existing > 0
+                    ? new HashSet<>(jdbcTemplate.queryForList(SELECT_ISSUED_USER_IDS_SQL, Long.class, campaign.id))
+                    : Set.of();
 
-            int target = partial
-                ? (int) (campaign.totalStock * (0.6 + random.nextDouble() * 0.3))
-                : campaign.totalStock;
-            int issueCount = Math.max(0, target - existing);
-            issueCount = Math.min(issueCount, eligible.size());
+                List<UserRow> eligible = users.stream()
+                    .filter(u -> campaign.minTier == null || u.tier.ordinal() >= campaign.minTier.ordinal())
+                    .filter(u -> !alreadyIssuedUserIds.contains(u.id))
+                    .collect(Collectors.toCollection(ArrayList::new));
+                Collections.shuffle(eligible, new Random(random.nextLong()));
 
-            for (int i = 0; i < issueCount; i++) {
-                UserRow user = eligible.get(i);
-                LocalDateTime issuedAt = randomInstantWithin(windowStart, windowEnd, random);
-                LocalDateTime validUntil = issuedAt.plusHours(coupon.validHours);
-                BigDecimal discountValue = "RATE".equals(coupon.discountType)
-                    ? TIER_RATE.get(user.tier)
-                    : coupon.discountValue;
+                int target = partial
+                    ? (int) (campaign.totalStock * (0.6 + random.nextDouble() * 0.3))
+                    : campaign.totalStock;
+                issueCount = Math.max(0, target - existing);
+                issueCount = Math.min(issueCount, eligible.size());
 
-                batch.add(new Object[]{
-                    campaign.id, user.id, "CPN-" + fastRandomUuid(random),
-                    coupon.discountType, discountValue, coupon.maxDiscountAmount,
-                    user.tier.name(), fastRandomUuid(random).toString(), issuedAt, validUntil
-                });
-                totalIssued++;
+                for (int i = 0; i < issueCount; i++) {
+                    UserRow user = eligible.get(i);
+                    LocalDateTime issuedAt = randomInstantWithin(windowStart, windowEnd, random);
+                    LocalDateTime validUntil = issuedAt.plusHours(coupon.validHours);
+                    BigDecimal discountValue = "RATE".equals(coupon.discountType)
+                        ? TIER_RATE.get(user.tier)
+                        : coupon.discountValue;
 
-                if (batch.size() >= BATCH_FLUSH_SIZE) {
+                    batch.add(new Object[]{
+                        campaign.id, user.id, "CPN-" + fastRandomUuid(random),
+                        coupon.discountType, discountValue, coupon.maxDiscountAmount,
+                        user.tier.name(), fastRandomUuid(random).toString(), issuedAt, validUntil
+                    });
+                    totalIssued++;
+
+                    if (batch.size() >= BATCH_FLUSH_SIZE) {
+                        jdbcTemplate.batchUpdate(INSERT_ISSUE_SQL, batch);
+                        batch.clear();
+                    }
+                }
+                if (!batch.isEmpty()) {
                     jdbcTemplate.batchUpdate(INSERT_ISSUE_SQL, batch);
                     batch.clear();
                 }
             }
-            if (!batch.isEmpty()) {
-                jdbcTemplate.batchUpdate(INSERT_ISSUE_SQL, batch);
-                batch.clear();
-            }
 
+            // skip이든 아니든 항상 실행 — 카운터가 실제 발급 건수와 어긋난 채로 남는 경우를 없앤다.
             int totalAfterThisRun = existing + issueCount;
             int remaining = Math.max(0, campaign.totalStock - totalAfterThisRun);
             String status = remaining == 0 ? "CLOSED" : "OPEN";
