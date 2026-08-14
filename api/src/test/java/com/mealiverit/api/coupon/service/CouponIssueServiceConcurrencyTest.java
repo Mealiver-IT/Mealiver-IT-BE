@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -52,6 +53,8 @@ public class CouponIssueServiceConcurrencyTest {
         registry.add("spring.datasource.url", mysql::getJdbcUrl);
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "110");
+        registry.add("spring.datasource.hikari.connection-timeout", () -> "60000");
     }
 
     @Autowired
@@ -146,5 +149,56 @@ public class CouponIssueServiceConcurrencyTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    //부하테스트 버그 재현: 동일 requestId 100개 동시 재전송
+    //수정 전엔 91개 성공, 9개 500에러(coupon_state_log.uk_state_log_request 위반)가 관측됨
+    //existsByRequestId 체크 ~ save() 사이 race window에서 여러 스레드가 통과해 INSERT가 경합하여
+    //1개만 성공하고 나머지는 DataIntegrityViolationException 발생 -> 이게 @Retryable 대상이 아니었던 것이 원인
+    @Test
+    void 동일_requestId로_100개_동시요청해도_전부_성공하고_상태전이는_한번만() throws InterruptedException {
+        Long issueId = createUsedCoupon();
+        String requestId = "return" + UUID.randomUUID();
+        int requesters = 100;
+
+        List<Throwable> unexpected = java.util.Collections.synchronizedList(new ArrayList<>());
+        ExecutorService pool = Executors.newFixedThreadPool(requesters);
+        CountDownLatch ready = new CountDownLatch(requesters);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(requesters);
+
+        for (int i = 0; i < requesters; i++) {
+            pool.submit(() -> {
+                ready.countDown();
+                await(start);
+                try {
+                    couponIssueService.markReturnedToIssued(issueId, requestId);
+                } catch (Throwable e) {
+                    unexpected.add(e);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+
+        ready.await(10, TimeUnit.SECONDS);
+        start.countDown();
+        boolean finishedInTime = done.await(30, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertThat(finishedInTime).as("100개 요청이 제한 시간 안에 끝났는지").isTrue();
+        assertThat(unexpected).as("동일 requestId 동시 재전송하여 예외 없이 전부 성공해야 함").isEmpty();
+
+        CouponIssue result = couponIssueRepository.findById(issueId).orElseThrow();
+        assertThat(result.getStatus()).isEqualTo(CouponStatus.ISSUED);
+
+        List<CouponStateLog> logs = couponStateLogRepository.findByCouponIssueIdOrderById(issueId);
+        assertThat(logs).hasSize(2);
+    }
+
+    private Long createUsedCoupon() {
+        Long issueId = createIssueCoupon();
+        couponIssueService.markUsed(issueId, "setup-used-" + UUID.randomUUID());
+        return issueId;
     }
 }
