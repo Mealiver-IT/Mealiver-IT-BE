@@ -5,6 +5,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import com.mealiverit.api.notification.NotificationSender;
+
 // 발급 트랜잭션과 알림 발송을 분리한다(05_시스템설계.txt 4절, FR-NOT-001):
 // - AFTER_COMMIT: 발급 트랜잭션이 실제로 커밋된 뒤에만 실행 — 재고 소진/uk 제약 위반 등으로
 //   트랜잭션이 롤백되면 이벤트 리스너 자체가 호출되지 않는다(Spring이 보장).
