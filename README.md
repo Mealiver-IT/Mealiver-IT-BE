@@ -61,8 +61,8 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 | 발급 API (상태전이 로직) | 이⁠진⁠희 | 상태전이 API, 상태 머신, idempotency |
 | 데이터·검증배치 (더미데이터) | 윤⁠태⁠형 | 더미데이터 시더(유저/오더/등급/캠페인/발급이력) |
 | 데이터·검증배치 (검증 SQL+PII) | 정⁠민⁠주 | 정합성 검증 배치(`ConsistencyVerificationJob`), PII 마스킹 컨버터/시리얼라이저 |
-| 부하테스트 | 이⁠호⁠성 | Docker Compose, k6 부하테스트(유저 20,000명 중복없음 / ramp-up 60초) |
-| 프론트 | 소⁠서⁠아 | 이벤트/결제 페이지, 실시간 재고 카운트다운 화면 |
+| 부하테스트 | 이⁠호⁠성 | k6 부하테스트(유저 20,000명 중복없음 / ramp-up 60초), Redis |
+| 프론트 | 소⁠서⁠아 | 이벤트/결제 페이지, 실시간 재고 카운트다운 화면 등 |
 
 ---
 
@@ -89,8 +89,8 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 | 분류 | 기술 |
 |---|---|
-| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) (Docker Compose 구성 — 추후 작성) |
-| 원격 DB | Tailscale로 연결되는 팀 공유 MySQL (학원 공용 서버) |
+| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) |
+| 원격 DB | Tailscale로 연결되는 팀 공유 MySQL |
 | CI | GitHub Actions — `main` 브랜치 push 시 Docker 이미지 빌드 후 GHCR에 푸시 |
 
 ---
