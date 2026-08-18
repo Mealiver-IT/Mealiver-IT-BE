@@ -142,26 +142,25 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 ---
 
 ### 7-1. 동시성 제어 — 선착순 발급
-
-> **V1.0 MVP 구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 4절).
-
-재고 초과 방지를 위한 6가지 전략을 비교한 뒤, **3단계 버전**으로 가기로 확정했습니다.
-
+> **V2(DB 비관적 락) 구현 완료** — V1(고장버전 실증)·V3(Redis 게이트)·V4(Redis+DB
+> 백스톱)는 [`03_버전사다리_실험설계.txt`](docs/planning/03_버전사다리_실험설계.txt) 기준
+> 원래 순서상 다음 단계로, 아직 미착수입니다.
+재고 초과 방지를 위한 6가지 전략을 비교한 뒤, **V1~V4 버전 사다리**로 가기로 확정했습니다.
 | 전략 | 정합성 | 처리량 | 인프라 의존성 | 채택 여부 |
 |---|---|---|---|---|
-| (a) DB unique + 비관적 락 (`SELECT ... FOR UPDATE`) | 강함 (row lock 완전 직렬화) | 낮음 (hot row 경합) | MySQL만 | **V1.0 MVP로 구현 완료** (`PessimisticLockStockReservationStrategy`) |
+| (a) DB unique + 비관적 락 (`SELECT ... FOR UPDATE`) | 강함 (row lock 완전 직렬화) | 낮음 (hot row 경합) | MySQL만 | **V2로 구현 완료** (`PessimisticLockStockReservationStrategy`) |
 | (b) DB unique + 낙관적 락/재시도 (`@Version`) | 강함이나 재시도 로직 필수 | 중간 (경합 심하면 재시도 폭증) | MySQL만 | 채택 안 함 — (a)가 동일 목표를 더 단순하게 달성 |
-| (c) Redis 원자적 감소(Lua script) 게이트 | 강함(단일 스레드 원자성) | 높음 | Redis 필수 | **V2.0 하드닝 1단계** — 설계 완료, 연동 예정 (검토 후 (f)로 대체 예정) |
+| (c) Redis 원자적 감소(Lua script) 게이트 | 강함(단일 스레드 원자성) | 높음 | Redis 필수 | **V3a** — 설계 완료, 미착수 (검토 후 (f)로 대체 예정) |
 | (d) Redis + Kafka 비동기 분리 | 강함 + eventual consistency | 매우 높음 | Redis + Kafka | 선택 확장으로 보류 — eventual consistency가 "즉시 정합성 검증" 평가 포인트와 설명 부담이 큼 |
 | (e) Redisson 분산락 (`RLock`) | 강함 (캠페인 단위 락) | 낮음~중간 | Redis 필수 | 기각 — fencing token 부재(Kleppmann, 2016)로 정합성 목적에 부적합 |
-| (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 | **V2.1 최종 채택** — 설계 완료, 연동 예정 |
+| (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 | **V3b 최종 채택 후보** — 설계 완료, 미착수 (A/B 실측으로 재검증 예정) |
 
 ```mermaid
 flowchart LR
-    V1["V1.0 MVP<br/>DB 비관적 락<br/>✅ 구현 완료"] --> V20["V2.0 하드닝 1단계<br/>Redis Lua script<br/>검토 후 대체"] --> V21["V2.1 최종 채택<br/>Redis 이중 카운터<br/>설계 완료 · 연동 예정"]
+    V1["V1<br/>제어 없음<br/>미착수 (고장버전 실증용)"] --> V2["V2<br/>DB 비관적 락<br/>✅ 구현 완료"] --> V3a["V3a<br/>Redis Lua script<br/>미착수 (검토 후 대체 예정)"] --> V3b["V3b<br/>Redis 이중 카운터<br/>미착수 (최종 채택 후보)"] --> V4["V4<br/>Redis + DB 백스톱<br/>미착수"]
 ```
 
-`StockReservationStrategy` 인터페이스로 전략을 분리해 두어, V2 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
+`StockReservationStrategy` 인터페이스로 전략을 분리해 두어, 다음 버전(V3/V4) 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`03_버전사다리_실험설계.txt`](docs/planning/03_버전사다리_실험설계.txt), 설계 배경은 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
 ### 이중 카운터란
 
