@@ -51,6 +51,28 @@ PATCH /api/campaigns/{id}/status
 {"status": "OPEN"}
 ```
 
+## users_20000.json 재생성
+
+`api/users_20000.json`(k6 부하테스트용 고정 유저 20,000명 목록)은 `.gitignore`에 걸려 있어 커밋되지 않습니다. 필요하면 아래 스크립트로 로컬에서 바로 재생성하세요.
+
+```bash
+python api/src/test/K6/phase1/generate_users_20000.py
+```
+
+출력 필드:
+
+| 필드 | 용도 |
+|---|---|
+| `id` | **`X-User-Id` 헤더에 이 값을 써야 함** (숫자, `Long` 파싱 필수 — 위 스펙 참고) |
+| `loginId` | 참고/로깅용 (`users.login_id`, API에는 안 씀) |
+| `idempotencyKey` | `Idempotency-Key` 헤더 |
+
+`loginId="userN"` → `id=N+1` 매핑을 가정합니다(100만 유저 시더가 `users` 테이블에 가장 먼저, 순서대로 넣기 때문). **이 가정이 실제와 다를 수 있어서(시딩 순서가 바뀌었거나, 로컬/리모트가 다르게 리셋됐거나) 스크립트가 파일을 쓰기 전에 매번 실제 DB에 대고 자동으로 확인합니다** — `user0`/`user{count-1}`의 실제 `id`를 조회해서 예상과 다르면 파일을 쓰지 않고 에러로 중단합니다.
+
+- 기본은 로컬 DB(`docker exec mealiver-mysql`)로 검증합니다. Docker Desktop이 떠 있어야 합니다.
+- 리모트로 검증하려면: `python generate_users_20000.py --host 100.125.247.64 --port 3306 --user mealiver --password mealiver1234 --database mealiver`
+- Docker가 없어서 검증을 못 하는 환경이면 `--skip-verify`로 건너뛸 수 있습니다(이 경우 매핑이 틀렸을 수도 있다는 걸 감수하는 것).
+
 ## 실행 시 주의
 
 - `userId`는 반드시 숫자 문자열(`${__VU}` 등)로 보내야 합니다 — `user-1-0` 같은 비숫자 값은 `Long` 파싱에서 400으로 깨집니다.
