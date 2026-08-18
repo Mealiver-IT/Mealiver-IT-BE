@@ -15,15 +15,15 @@
 2. [팀원 소개](#2-팀원-소개)
 3. [기술 스택](#3-기술-스택)
 4. [시스템 아키텍처](#4-시스템-아키텍처)
-5. [ERD](#5-erd)
-6. [핵심 기능](#6-핵심-기능)
-   - [동시성 제어 — 선착순 발급](#6-1-동시성-제어--선착순-발급)
-   - [쿠폰 상태 머신](#6-2-쿠폰-상태-머신)
-   - [Idempotency 설계](#6-3-idempotency-설계)
-   - [멤버십 등급 시스템](#6-4-멤버십-등급-시스템)
-   - [정합성 자기검증](#6-5-정합성-자기검증)
-   - [더미데이터 파이프라인](#6-6-더미데이터-파이프라인)
-7. [인프라 & 배포](#7-인프라--배포)
+5. [인프라 & 배포](#5-인프라--배포)
+6. [ERD](#6-erd)
+7. [핵심 기능](#7-핵심-기능)
+   - [동시성 제어 — 선착순 발급](#7-1-동시성-제어--선착순-발급)
+   - [쿠폰 상태 머신](#7-2-쿠폰-상태-머신)
+   - [Idempotency 설계](#7-3-idempotency-설계)
+   - [멤버십 등급 시스템](#7-4-멤버십-등급-시스템)
+   - [정합성 자기검증](#7-5-정합성-자기검증)
+   - [더미데이터 파이프라인](#7-6-더미데이터-파이프라인)
 
 ---
 
@@ -45,7 +45,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 ### 프로젝트 기간
 
 ```
-2026.08.06 ~ (2주 / LG 부트캠프 멘토링 2회)
+2026.08.06 ~ 2026.08.31
 ```
 
 ---
@@ -96,22 +96,29 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ## 4. 시스템 아키텍처
 
-<img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/0fb179e7-e6f7-4cf4-8f09-3145f05d685d" />
-
-### 로컬 / 팀 공유 개발 환경
-
-```
-Docker 환경
-   └─ MySQL (local 프로필: 로컬 컨테이너 / remote 프로필: Tailscale로 연결되는 팀 공유 서버)
-
-Redis 연동 — 추후 작성
-```
-
-자세한 실행 방법은 [`api/src/main/java/com/mealiverit/api/seed/README.md`](api/src/main/java/com/mealiverit/api/seed/README.md) 참고.
+<img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/6e1c1ddb-97e5-40ef-9b36-e5efd2727488" />
 
 ---
 
-## 5. ERD
+## 5. 인프라 & 배포
+
+```
+로컬 개발 (local 프로필)
+   └─ Docker MySQL 컨테이너
+팀 공유 개발 (remote 프로필)
+   └─ Tailscale로 연결되는 학원 공용 서버
+      └─ Mealiver-IT-Infra의 docker-compose로 MySQL, Redis, Kafka(+UI),
+         Prometheus, Grafana, Adminer, API, FE를 한 번에 기동
+```
+
+- `Mealiver-IT-Infra` 레포에 `docker-compose.yml`로 인프라 전체 구성 완료. Redis/Kafka 컨테이너는 떠 있지만, 애플리케이션 코드에서는 아직 사용하지 않습니다(재고 게이트 V2 연동 예정).
+- Grafana에 쿠폰 발급 DB 모니터링 대시보드 구축 완료 — 캠페인 재고 현황, 초당 발급 추이, 활성 DB 커넥션, InnoDB 락 대기 현황을 실시간으로 시각화(Phase 3 "DB 비관적 락 vs Redis 성능 비교" 발표용).
+- GitHub Actions로 `main` 브랜치 push 시 Docker 이미지를 빌드해 GHCR에 푸시.
+- 별도 클라우드 프로덕션 배포는 하지 않고, 로컬 및 팀 공유 환경에서 개발·검증합니다.
+
+---
+
+## 6. ERD
 
 <img width="1750" height="1550" alt="drawSQL-image-export-2026-08-14" src="https://github.com/user-attachments/assets/ad4d3b2e-d124-4447-865e-a6167297e1b7" />
 
@@ -122,18 +129,18 @@ Redis 연동 — 추후 작성
 | `users` | 회원(가상 데이터). 로그인/인증은 구현하지 않고 계급 산정용 데이터로만 사용 | `membership_tier`(현재 등급, 배치가 갱신), `tier_calculated_at` / `uk_users_login_id` |
 | `orders` | 계급 산정용 결제완료 이력. 실제 주문 UI는 프론트 정적 mockup, 이 테이블은 등급 배치가 집계하는 근거 데이터 | `status`, `completed_at` / `idx_orders_tier_calc(user_id, status, completed_at)` — 등급 배치가 완료 주문 수를 집계할 때 사용 |
 | `membership_tier_log` | 등급 재산정 배치(`MembershipTierBatchJob`) 감사 로그. 등급이 실제로 바뀐 유저만 기록 | `from_tier`, `to_tier`, `order_count` |
-| `campaign` | 선착순 발급 이벤트(캠페인) 마스터. 재고·오픈 기간·회원 등급 제한을 가짐 | `total_stock`/`remaining_stock`(DB 조건부 UPDATE 백스톱이 갱신), `min_membership_tier`(nullable, 회원 전용 쿠폰 eligibility), `version`(낙관적 락) |
+| `campaign` | 선착순 발급 이벤트(캠페인) 마스터. 재고·오픈 기간·회원 등급 제한을 가짐 | `total_stock`/`remaining_stock`(DB 조건부 UPDATE 백스톱이 갱신), `min_membership_tier`(nullable, 회원 전용 쿠폰 자격요건), `version`(낙관적 락) |
 | `coupon` | 캠페인이 발급하는 쿠폰의 할인 정책. 캠페인과 1:1 | `discount_type`/`discount_value`, `valid_hours`(발급 시점 기준 유효기간) / FK `campaign_id` |
 | `coupon_issue` | 실제 발급 이력. 상태 관리의 핵심 테이블(300만 건 규모 대상) | `status`(ISSUED/USED/CANCELED/EXPIRED), `issued_membership_tier`(발급 시점 등급 스냅샷), `idempotency_key` / `uk_campaign_user`(1인 1매 최종 방어선), `uk_idempotency_key`, `idx_ci_status_valid_until`(만료 배치 스캔용) |
 | `coupon_state_log` | 상태전이 감사 로그. 정합성 검증 배치가 "이력 vs 현재 상태"를 대조하는 근거 | `from_status`/`to_status`, `request_id` / `uk_state_log_request`(상태전이 요청 멱등성 최종 방어선), `idx_state_log_coupon_issue(coupon_issue_id, id)` |
 
 ---
 
-## 6. 핵심 기능
+## 7. 핵심 기능
 
 ---
 
-### 6-1. 동시성 제어 — 선착순 발급
+### 7-1. 동시성 제어 — 선착순 발급
 
 > **V1.0 MVP 구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 4절).
 
@@ -197,7 +204,7 @@ Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비한 방�
 | **(d) Kafka 비동기 보류** | eventual consistency라 "즉시 정합성 검증" 평가 포인트와 안 맞음, 선택 확장으로 미룸 |
 | **V2.0(Lua) 거쳐서 V2.1(이중카운터)** | Lua를 건너뛰지 않은 이유: "시도해봤고 이런 문제를 발견했다"는 실측 근거를 남기기 위함 |
 
-> ⚠️ **성능 비교(Lua vs 이중카운터)는 아직 미검증**입니다. 인용했던 "올리브영 -21% vs 이중카운터 -8%"는 외부 사례 수치이고, 왕복 횟수만 보면 오히려 Lua(1회)가 이중카운터(2회)보다 유리할 수도 있어서 저희 조건으로 직접 재측정이 필요한 상태입니다.
+> ⚠️ **성능 비교(Lua vs 이중카운터)는 아직 미검증**입니다. 인용했던 "올리브영 -21% vs 이중카운터 -8%"는 외부 사례 수치이고, 왕복 횟수만 보면 오히려 Lua(1회)가 이중카운터(2회)보다 유리할 수도 있어서 저희 조건으로 직접 재측정이 필요한 상태입니다. → **발표 시 "최종 채택 = 이중카운터"라고 확정 지어 말하기보다 "검증 중"으로 표현하는 게 안전**합니다.
 
 **k6 부하테스트 리허설 결과** (`api/src/test/K6/phase1/`):
 
@@ -210,7 +217,7 @@ Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비한 방�
 
 ---
 
-### 6-2. 쿠폰 상태 머신
+### 7-2. 쿠폰 상태 머신
 
 `ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. `USED → ISSUED`(주문취소 시 본인 재사용 복귀)만 예외적으로 허용됩니다(2026-08-13 팀 결정). 허용 전이 목록은 엔티티 레벨에 구현·테스트 완료되어 있습니다.
 
@@ -261,7 +268,7 @@ public enum CouponStatus {
 - `USED → ISSUED` : 쿠폰이 적용된 주문을 취소하면, 본인이 그 쿠폰을 다시 쓸 수 있도록 `ISSUED`로 복귀시킨다 (2026-08-13 팀 결정, `OrderService`의 주문취소 처리 중 `markReturnedToIssued` 호출)
 - `USED → EXPIRED` : **의도적으로 불허.** `ISSUED`로 복귀시킨 뒤 유효기간이 지났으면 만료 배치가 알아서 처리하므로, `USED`에서 직접 `EXPIRED`로 보내는 별도 경로는 불필요
 
-**상태전이 API** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
+**상태전이 API 구현 완료** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
 
 - `markUsed` — `OrderService`가 결제완료(`POST /api/orders`) 처리 중 내부 호출
 - `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
@@ -270,7 +277,7 @@ public enum CouponStatus {
 
 ---
 
-### 6-3. Idempotency 설계
+### 7-3. Idempotency 설계
 
 > **구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 5절).
 
@@ -280,7 +287,7 @@ public enum CouponStatus {
 
 ---
 
-### 6-4. 멤버십 등급 시스템
+### 7-4. 멤버십 등급 시스템
 
 회원은 이등병(PRIVATE)·일병(PFC)·상병(CORPORAL)·병장(SERGEANT) 4단계 등급을 가지며, 완료 주문 수 기준으로 매월 1일 자동 재산정됩니다. `MembershipTierBatchJob`으로 구현·검증 완료했습니다.
 
@@ -297,11 +304,11 @@ public enum CouponStatus {
 
 ---
 
-### 6-5. 정합성 자기검증
+### 7-5. 정합성 자기검증
 
 > **검증 SQL + 오염 데이터 탐지 검증 구현·실행 완료**, Spring Batch 자동화는 Phase 3 선택 확장 — 아래는 확정된 설계입니다 (`docs/planning/05_시스템설계.txt` 1절).
 
-300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종(파일 7개)을 `api/src/main/resources/sql/verification/`에 작성해 실제 데이터로 실행 완료했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증(3개 쿼리), 멤버십 등급 eligibility 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증. **전 항목 0 rows 확인**(폴더 [README](api/src/main/resources/sql/verification/README.md) 참고). 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
+300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종(파일 7개)을 `api/src/main/resources/sql/verification/`에 작성해 실제 데이터로 실행 완료했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증(3개 쿼리), 멤버십 등급 자격요건 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증. **전 항목 0 rows 확인**(폴더 [README](api/src/main/resources/sql/verification/README.md) 참고). 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
 
 **오염 데이터 탐지 검증도 완료**했습니다(`api/src/main/resources/sql/fixtures/dirty_data_seed.sql`) — 검증쿼리 5종(파일 7개) 각각을 위반하는 오염 데이터를 100건씩(총 700건) 전용 캠페인/유저로 격리해 삽입한 뒤, 검증 SQL이 정확히 예상된 건수만큼 탐지하는지 확인했습니다. "정상 데이터 0 rows + 오염 데이터 정확히 N rows"인 양방향 테스트라 검증 로직이 실제로 동작한다는 증거가 됩니다(`dirty_data_cleanup.sql`로 재실행 전 초기화).
 
@@ -309,39 +316,9 @@ public enum CouponStatus {
 
 ---
 
-### 6-6. 더미데이터 파이프라인
+### 7-6. 더미데이터 파이프라인
 
-과제 요구사항(가상 유저 100만 명 + 발급이력 300만 건)을 실제로 생성·적재하는 5단계 시더 체인을 구현·검증 완료했습니다.
-
-```mermaid
-flowchart LR
-    A["UserSeedRunner<br/>유저 100만"] --> B["OrderSeedRunner<br/>등급분포 역산<br/>주문 1,025만건"]
-    B --> C["MembershipTierSeedRunner<br/>등급 재산정 배치 실행"]
-    C --> D["CampaignSeedRunner<br/>캠페인 15개 + 쿠폰<br/>총재고 300만"]
-    D --> E["CouponIssueSeedRunner<br/>eligibility 만족 유저에게 발급"]
-```
-
-- **대량 INSERT**: `rewriteBatchedStatements=true` + `JdbcTemplate.batchUpdate()` 청크(5,000건)로 다건 INSERT를 하나의 `VALUES (a),(b),(c)...`로 묶어 네트워크 왕복을 최소화.
-- **재개 가능한 시더**: `CouponIssueSeedRunner`는 캠페인마다 즉시 커밋되어, 중간에 프로세스가 죽어도 이미 처리된 캠페인은 안전하게 남고 재실행 시 이어서 진행.
-- 로컬 100만 유저 / 오더 1,025만 건 / 캠페인 15개(총재고 300만) / 발급이력 약 287만 건 규모로 전체 파이프라인을 검증했습니다(15개 캠페인 중 4개는 의도적으로 재고 일부만 소진시켜 완판/진행중 상태가 섞이도록 구성).
-
----
-
-## 7. 인프라 & 배포
-
-```
-로컬 개발 (local 프로필)
-   └─ Docker MySQL 컨테이너
-팀 공유 개발 (remote 프로필)
-   └─ Tailscale로 연결되는 학원 공용 서버
-      └─ Mealiver-IT-Infra의 docker-compose로 MySQL, Redis, Kafka(+UI),
-         Prometheus, Grafana, Adminer, API, FE를 한 번에 기동
-```
-
-- `Mealiver-IT-Infra` 레포에 `docker-compose.yml`로 인프라 전체 구성 완료. Redis/Kafka 컨테이너는 떠 있지만, 애플리케이션 코드에서는 아직 사용하지 않습니다(재고 게이트 V2 연동 예정).
-- Grafana에 쿠폰 발급 DB 모니터링 대시보드 구축 완료 — 캠페인 재고 현황, 초당 발급 추이, 활성 DB 커넥션, InnoDB 락 대기 현황을 실시간으로 시각화(Phase 3 "DB 비관적 락 vs Redis 성능 비교" 발표용).
-- GitHub Actions로 `main` 브랜치 push 시 Docker 이미지를 빌드해 GHCR에 푸시.
-- 별도 클라우드 프로덕션 배포는 하지 않고, 로컬 및 팀 공유 환경에서 개발·검증합니다.
+5단계 시더 체인(`UserSeedRunner→OrderSeedRunner→MembershipTierSeedRunner→CampaignSeedRunner→CouponIssueSeedRunner`)으로 유저 100만·오더 1,025만·캠페인 15개(재고 300만)·발급이력 약 287만 건 규모를 실증했습니다. 청크 배치 INSERT(`rewriteBatchedStatements`)로 대량 적재하고, 캠페인 단위로 즉시 커밋해 중단돼도 이어서 재실행 가능하도록 구현했습니다.
 
 ---
 
