@@ -31,7 +31,7 @@
 
 ### 배경
 
-U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, **배달 서비스에서 매일 오전 11시 정각에 여는 오픈런 할인쿠폰** 시나리오로 구체화한 프로젝트입니다. 
+U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 트래픽 선착순 쿠폰 발급 시스템"을, **배달 서비스에서 매일 오전 11시 정각에 여는 오픈런 할인쿠폰** 시나리오로 구체화한 프로젝트입니다.
 
 ### 목표
 
@@ -45,7 +45,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 ### 프로젝트 기간
 
 ```
-2026.08.06 ~ (2주 / LG 부트캠프 멘토링 2회, 발표 및 시상 있음)
+2026.08.06 ~ (2주 / LG 부트캠프 멘토링 2회)
 ```
 
 ---
@@ -96,28 +96,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ## 4. 시스템 아키텍처
 
-```
-[클라이언트(웹, 이벤트·결제 페이지만 실제 동작 / 나머지는 정적 mockup)]
-        │ REST
-        ▼
-[Spring Boot Application]
-   ├─ Controller / Service 계층
-   │    ├─ CouponClaimController : 선착순 발급 (POST /api/campaigns/{id}/coupons, Idempotency-Key 헤더 필수)
-   │    │    └─ CouponIssuanceService → StockReservationStrategy (V1: 비관적 락 구현체)
-   │    ├─ CouponController      : 내 발급 쿠폰 조회, 관리자 강제회수(revoke)
-   │    │    └─ CouponIssueService (상태전이: markUsed/markCanceled/markReturnedToIssued)
-   │    ├─ OrderController       : 주문 생성(결제완료 시 쿠폰 사용 처리) / 취소(쿠폰 본인 재사용 복귀)
-   │    └─ CampaignController    : 캠페인 CRUD (관리자용)
-   ├─ Notification : CouponIssuedEvent → @TransactionalEventListener(AFTER_COMMIT) + @Async
-   │                  → MockNotificationSender (발급 트랜잭션과 완전 분리, FR-NOT-001)
-   ├─ Batch    : MembershipTierBatchJob (매월 1일 등급 재산정), CouponExpirationBatchJob (쿠폰 만료)
-   │             — 둘 다 ShedLock으로 다중 인스턴스 중복실행 방지
-   ├─ Seed     : UserSeedRunner → OrderSeedRunner → MembershipTierSeedRunner
-   │             → CampaignSeedRunner → CouponIssueSeedRunner (더미데이터 파이프라인)
-   │
-   ├─▶ [MySQL]  회원 / 오더 / 캠페인 / 쿠폰 / 발급이력 / 등급이력
-   └─▶ [Redis]  재고 이중 카운터, 캠페인 게이트          ── 설계 완료, 연동 예정
-```
+<img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/0fb179e7-e6f7-4cf4-8f09-3145f05d685d" />
 
 ### 로컬 / 팀 공유 개발 환경
 
@@ -169,7 +148,12 @@ Redis 연동 — 추후 작성
 | (e) Redisson 분산락 (`RLock`) | 강함 (캠페인 단위 락) | 낮음~중간 | Redis 필수 | 기각 — fencing token 부재(Kleppmann, 2016)로 정합성 목적에 부적합 |
 | (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 | **V2.1 최종 채택** — 설계 완료, 연동 예정 |
 
-**확정 로드맵**: `V1.0 MVP = (a) 비관적 락` → `V2.0 = (c) Redis Lua (검토 후 대체)` → `V2.1 최종 채택 = (f) Redis 이중 카운터`. `StockReservationStrategy` 인터페이스로 전략을 분리해 두어, V2 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
+```mermaid
+flowchart LR
+    V1["V1.0 MVP<br/>DB 비관적 락<br/>✅ 구현 완료"] --> V20["V2.0 하드닝 1단계<br/>Redis Lua script<br/>검토 후 대체"] --> V21["V2.1 최종 채택<br/>Redis 이중 카운터<br/>설계 완료 · 연동 예정"]
+```
+
+`StockReservationStrategy` 인터페이스로 전략을 분리해 두어, V2 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
 ### 이중 카운터란
 
@@ -180,11 +164,16 @@ Redis에 캠페인당 카운터를 **2개** 두는 방식입니다.
 | `countReq` | 1차 저비용 필터 | 요청이 들어오는 즉시, 무조건 증가 |
 | `count` | 2차 확정 카운터 | DB 발급까지 실제로 성공했을 때만 증가 (실패하면 자체 롤백) |
 
-**처리 흐름**
-1. 요청 도착 → `countReq` 먼저 증가
-2. `countReq`가 재고를 넘으면 → 즉시 품절 처리 (DB까지 안 감, 여기서 대부분의 초과 요청을 싸게 걸러냄)
-3. 통과한 요청만 DB에 실제 발급 시도 → 성공하면 `count` 증가
-4. DB 발급이 실패하면 → `count`는 증가시키지 않음(롤백)
+```mermaid
+flowchart TD
+    A[요청 도착] --> B["countReq 증가<br/>(무조건)"]
+    B --> C{"countReq ≤ 재고?"}
+    C -->|아니오| D[품절 처리 반환]
+    C -->|예| E[DB 발급 시도]
+    E --> F{성공?}
+    F -->|예| G["count 증가<br/>(확정)"]
+    F -->|아니오| H["count 증가 안 함<br/>(롤백)"]
+```
 
 **왜 안전한가**: `count`는 "진짜로 발급 성공한 건수"만 정확히 세고, 실패한 건 절대 안 세기 때문에, `count`가 재고를 넘지 않는 한 초과발급이 일어날 수 없다는 걸 논리적으로 보장할 수 있습니다.
 
@@ -208,7 +197,7 @@ Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비한 방�
 | **(d) Kafka 비동기 보류** | eventual consistency라 "즉시 정합성 검증" 평가 포인트와 안 맞음, 선택 확장으로 미룸 |
 | **V2.0(Lua) 거쳐서 V2.1(이중카운터)** | Lua를 건너뛰지 않은 이유: "시도해봤고 이런 문제를 발견했다"는 실측 근거를 남기기 위함 |
 
-> ⚠️ **성능 비교(Lua vs 이중카운터)는 아직 미검증**입니다. 인용했던 "올리브영 -21% vs 이중카운터 -8%"는 외부 사례 수치이고, 왕복 횟수만 보면 오히려 Lua(1회)가 이중카운터(2회)보다 유리할 수도 있어서 저희 조건으로 직접 재측정이 필요한 상태입니다. → **발표 시 "최종 채택 = 이중카운터"라고 확정 지어 말하기보다 "검증 중"으로 표현하는 게 안전**합니다.
+> ⚠️ **성능 비교(Lua vs 이중카운터)는 아직 미검증**입니다. 인용했던 "올리브영 -21% vs 이중카운터 -8%"는 외부 사례 수치이고, 왕복 횟수만 보면 오히려 Lua(1회)가 이중카운터(2회)보다 유리할 수도 있어서 저희 조건으로 직접 재측정이 필요한 상태입니다.
 
 **k6 부하테스트 리허설 결과** (`api/src/test/K6/phase1/`):
 
@@ -224,6 +213,18 @@ Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비한 방�
 ### 6-2. 쿠폰 상태 머신
 
 `ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. `USED → ISSUED`(주문취소 시 본인 재사용 복귀)만 예외적으로 허용됩니다(2026-08-13 팀 결정). 허용 전이 목록은 엔티티 레벨에 구현·테스트 완료되어 있습니다.
+
+```mermaid
+stateDiagram-v2
+    [*] --> ISSUED : 발급
+    ISSUED --> USED : 결제 적용
+    ISSUED --> CANCELED : 관리자 강제회수
+    ISSUED --> EXPIRED : 유효기간 만료(배치)
+    USED --> CANCELED : 관리자 강제회수
+    USED --> ISSUED : 주문취소(본인 재사용 복귀)
+    CANCELED --> [*]
+    EXPIRED --> [*]
+```
 
 ```java
 public enum CouponStatus {
@@ -260,7 +261,7 @@ public enum CouponStatus {
 - `USED → ISSUED` : 쿠폰이 적용된 주문을 취소하면, 본인이 그 쿠폰을 다시 쓸 수 있도록 `ISSUED`로 복귀시킨다 (2026-08-13 팀 결정, `OrderService`의 주문취소 처리 중 `markReturnedToIssued` 호출)
 - `USED → EXPIRED` : **의도적으로 불허.** `ISSUED`로 복귀시킨 뒤 유효기간이 지났으면 만료 배치가 알아서 처리하므로, `USED`에서 직접 `EXPIRED`로 보내는 별도 경로는 불필요
 
-**상태전이 API 구현 완료** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
+**상태전이 API** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
 
 - `markUsed` — `OrderService`가 결제완료(`POST /api/orders`) 처리 중 내부 호출
 - `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
@@ -312,10 +313,12 @@ public enum CouponStatus {
 
 과제 요구사항(가상 유저 100만 명 + 발급이력 300만 건)을 실제로 생성·적재하는 5단계 시더 체인을 구현·검증 완료했습니다.
 
-```
-UserSeedRunner → OrderSeedRunner → MembershipTierSeedRunner → CampaignSeedRunner → CouponIssueSeedRunner
-  (유저 100만)     (등급분포 역산       (등급 재산정 배치        (캠페인 15개 +          (캠페인별 eligibility를
-                   주문 1,025만건)      실행)                    쿠폰, 총재고 300만)      만족하는 유저에게 발급)
+```mermaid
+flowchart LR
+    A["UserSeedRunner<br/>유저 100만"] --> B["OrderSeedRunner<br/>등급분포 역산<br/>주문 1,025만건"]
+    B --> C["MembershipTierSeedRunner<br/>등급 재산정 배치 실행"]
+    C --> D["CampaignSeedRunner<br/>캠페인 15개 + 쿠폰<br/>총재고 300만"]
+    D --> E["CouponIssueSeedRunner<br/>eligibility 만족 유저에게 발급"]
 ```
 
 - **대량 INSERT**: `rewriteBatchedStatements=true` + `JdbcTemplate.batchUpdate()` 청크(5,000건)로 다건 INSERT를 하나의 `VALUES (a),(b),(c)...`로 묶어 네트워크 왕복을 최소화.
