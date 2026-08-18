@@ -96,7 +96,8 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ## 4. 시스템 아키텍처
 
-<img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/6e1c1ddb-97e5-40ef-9b36-e5efd2727488" />
+<img width="1920" height="1080" alt="시스템 아키텍처" src="https://github.com/user-attachments/assets/922ab210-2a3c-4f72-9c95-0f68e7898c14" />
+
 
 ---
 
