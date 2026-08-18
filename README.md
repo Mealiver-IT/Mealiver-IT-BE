@@ -38,7 +38,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 | 목표 | 해결 기술 |
 |---|---|
 | 재고 10,000장·동시요청 20,000건에도 초과발급 0건, 1인 1매 | DB unique 제약 + 비관적 락(MVP) → Redis 이중 카운터(하드닝, 설계 확정) |
-| 300만 건 발급이력 전체에 대한 결정론적 정합성 자기검증 | 재실행 시 동일 결과가 나오는 검증 SQL 5종(구현·실행 완료) + Spring Batch 자동화(Phase 2 선택 확장) |
+| 300만 건 발급이력 전체에 대한 결정론적 정합성 자기검증 | 재실행 시 동일 결과가 나오는 검증 SQL 5종 + 오염 데이터 탐지 검증(구현·실행 완료) + Spring Batch 자동화(Phase 3 선택 확장) |
 | 회원 등급별 차등 혜택 (이등병~병장 4단계) | 완료 주문 수 기준 매월 1일 자동 재산정 배치 |
 | 100만 유저·300만 발급이력 규모 실증 | 청크 배치 시더 + `rewriteBatchedStatements` 기반 대량 적재 파이프라인 |
 
@@ -73,7 +73,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 |---|---|
 | 언어 / 프레임워크 | ![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=for-the-badge&logo=springboot&logoColor=white) ![Maven](https://img.shields.io/badge/Maven-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white) |
 | ORM | ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-59666C?style=for-the-badge&logo=hibernate&logoColor=white) |
-| 배치 | Spring `@Scheduled` + ShedLock(분산락) — 등급 재산정(`MembershipTierBatchJob`), 쿠폰 만료(`CouponExpirationBatchJob`) 구현 완료. 정합성 검증 자동화(`ConsistencyVerificationJob`, Spring Batch)는 Phase 2 선택 확장 |
+| 배치 | Spring `@Scheduled` + ShedLock(분산락) — 등급 재산정(`MembershipTierBatchJob`), 쿠폰 만료(`CouponExpirationBatchJob`) 구현 완료. 정합성 검증 자동화(`ConsistencyVerificationJob`, Spring Batch)는 Phase 3 선택 확장 |
 | 재시도 / 이벤트 | ![Spring Retry](https://img.shields.io/badge/Spring%20Retry-6DB33F?style=for-the-badge&logo=spring&logoColor=white) 상태전이 동시성 재시도, `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 기반 알림 분리 |
 | 분산 캐시 / 락 | ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white) — 이중 카운터 기반 재고 게이트 (설계 완료, 연동 예정) |
 
@@ -88,7 +88,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 | 분류 | 기술 |
 |---|---|
-| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) |
+| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) — `Mealiver-IT-Infra` 레포 docker-compose로 MySQL/Redis/Kafka(+UI)/Prometheus/Grafana/Adminer/API/FE 전체 스택 구성 완료 |
 | 원격 DB | Tailscale로 연결되는 팀 공유 MySQL |
 | CI | GitHub Actions — `main` 브랜치 push 시 Docker 이미지 빌드 후 GHCR에 푸시 |
 
@@ -214,7 +214,7 @@ public enum CouponStatus {
 - `markUsed` — `OrderService`가 결제완료(`POST /api/orders`) 처리 중 내부 호출
 - `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
 - `markCanceled` — `CouponController`의 관리자 강제회수(`POST /api/admin/coupons/{issueId}/revoke`)에서 호출
-- 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException}, maxAttempts = 3)`로 지수 백오프 재시도 (자세한 경위는 [트러블슈팅 ⑤](#8-트러블슈팅) 참고)
+- 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException}, maxAttempts = 3)`로 지수 백오프 재시도
 
 ---
 
@@ -247,11 +247,13 @@ public enum CouponStatus {
 
 ### 6-5. 정합성 자기검증
 
-> **검증 SQL 구현·실행 완료**, Spring Batch 자동화는 Phase 2 선택 확장 — 아래는 확정된 설계입니다 (`docs/planning/05_시스템설계.txt` 1절).
+> **검증 SQL + 오염 데이터 탐지 검증 구현·실행 완료**, Spring Batch 자동화는 Phase 3 선택 확장 — 아래는 확정된 설계입니다 (`docs/planning/05_시스템설계.txt` 1절).
 
 300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종(파일 7개)을 `api/src/main/resources/sql/verification/`에 작성해 실제 데이터로 실행 완료했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증(3개 쿼리), 멤버십 등급 eligibility 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증. **전 항목 0 rows 확인**(폴더 [README](api/src/main/resources/sql/verification/README.md) 참고). 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
 
-현재는 MySQL 클라이언트로 수동 실행하며, `Step` 단위 Spring Batch Job(`ConsistencyVerificationJob`)으로 자동화하고 오염 데이터(초과발급/카운터불일치/상태역행/등급위반)를 의도적으로 삽입해 검증 배치가 실제로 위반을 탐지하는지 증명하는 것은 Phase 2 선택 확장입니다.
+**오염 데이터 탐지 검증도 완료**했습니다(`api/src/main/resources/sql/fixtures/dirty_data_seed.sql`) — 검증쿼리 5종(파일 7개) 각각을 위반하는 오염 데이터를 100건씩(총 700건) 전용 캠페인/유저로 격리해 삽입한 뒤, 검증 SQL이 정확히 예상된 건수만큼 탐지하는지 확인했습니다. "정상 데이터 0 rows + 오염 데이터 정확히 N rows"인 양방향 테스트라 검증 로직이 실제로 동작한다는 증거가 됩니다(`dirty_data_cleanup.sql`로 재실행 전 초기화).
+
+현재는 MySQL 클라이언트로 수동 실행합니다. `Step` 단위 Spring Batch Job(`ConsistencyVerificationJob`)으로 자동화하는 것은 Phase 3 선택 확장입니다.
 
 ---
 
@@ -277,10 +279,13 @@ UserSeedRunner → OrderSeedRunner → MembershipTierSeedRunner → CampaignSeed
 로컬 개발 (local 프로필)
    └─ Docker MySQL 컨테이너
 팀 공유 개발 (remote 프로필)
-   └─ Tailscale로 연결되는 학원 공용 서버(MySQL)
+   └─ Tailscale로 연결되는 학원 공용 서버
+      └─ Mealiver-IT-Infra의 docker-compose로 MySQL, Redis, Kafka(+UI),
+         Prometheus, Grafana, Adminer, API, FE를 한 번에 기동
 ```
 
-- Docker Compose 구성(MySQL + Redis 한 번에 기동)은 추후 작성 — 현재는 `docker run` 단일 명령으로 로컬 MySQL만 기동.
+- `Mealiver-IT-Infra` 레포에 `docker-compose.yml`로 인프라 전체 구성 완료. Redis/Kafka 컨테이너는 떠 있지만, 애플리케이션 코드에서는 아직 사용하지 않습니다(재고 게이트 V2 연동 예정).
+- Grafana에 쿠폰 발급 DB 모니터링 대시보드 구축 완료 — 캠페인 재고 현황, 초당 발급 추이, 활성 DB 커넥션, InnoDB 락 대기 현황을 실시간으로 시각화(Phase 3 "DB 비관적 락 vs Redis 성능 비교" 발표용).
 - GitHub Actions로 `main` 브랜치 push 시 Docker 이미지를 빌드해 GHCR에 푸시.
 - 별도 클라우드 프로덕션 배포는 하지 않고, 로컬 및 팀 공유 환경에서 개발·검증합니다.
 
