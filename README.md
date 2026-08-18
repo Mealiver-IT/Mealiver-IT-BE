@@ -171,13 +171,20 @@ Redis 연동 — 추후 작성
 
 **확정 로드맵**: `V1.0 MVP = (a) 비관적 락` → `V2.0 = (c) Redis Lua (검토 후 대체)` → `V2.1 최종 채택 = (f) Redis 이중 카운터`. `StockReservationStrategy` 인터페이스로 전략을 분리해 두어, V2 전환 시 구현체만 교체하면 되도록 설계했습니다. 자세한 비교·근거는 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
-Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비해 방어선 2겹을 추가로 둘 예정입니다: 발급 트랜잭션 안에서 실행되는 **DB 조건부 UPDATE 백스톱**(`UPDATE campaign SET remaining_stock = remaining_stock - 1 WHERE id = ? AND remaining_stock > 0`)과, 앱 기동/Redis 복구 시 DB 실제 발급 수를 기준으로 Redis 카운터를 재동기화하는 **멱등한 워밍업 함수**입니다.
+Redis가 상태를 잃는 경우(강제 종료 후 재시작)에 대비한 방어선 2겹도 설계에 포함되어 있습니다:
+
+1. **DB 조건부 UPDATE 백스톱** — 발급 트랜잭션 안에서 `UPDATE campaign SET remaining_stock = remaining_stock - 1 WHERE id = ? AND remaining_stock > 0`을 실행해, Redis 게이트가 뚫리더라도 총 발급량이 DB 레벨에서 재고를 절대 못 넘게 막습니다.
+2. **멱등한 워밍업 함수** — 앱 기동 시 또는 Redis 복구 감지 시, DB에 실제로 발급된 수를 기준으로 Redis 카운터를 재동기화합니다. 여러 번 호출해도 결과가 같아야 하는 멱등 함수로 설계했습니다.
+
+두 방어선 모두 아직 구현 전이며, Redis 연동(V2) 단계에서 함께 붙일 예정입니다.
 
 **k6 부하테스트 리허설 결과** (`api/src/test/K6/phase1/`):
 
 | 시나리오 | 조건 | 결과 |
 |---|---|---|
 | Phase 1 리허설 (`phase1-rehearsal.js`) | 재고 100장 vs 요청 50건 | 2026-08-12 실행 완료 — 초과발급 없이 **50/50 전원 발급 성공** |
+| Phase 2 — 발급 idempotency (`phase2-idempotency.js`) | 같은 유저 + 같은 Idempotency-Key로 100개 동시 요청 | 완료 — 100/100 (신규발급 1건 + 이미처리 99건) |
+| Phase 2 — 상태전이 idempotency (`phase2b-state-idempotency.js`) | 같은 주문 취소 요청 100개 동시 전송 | 완료 — 100/100 (첫 실행에서 버그 발견 → 이진희님이 수정 → 3차 재검증 후 통과) |
 | Phase 3 본시험 (`coupon_race.js`) | 유저 20,000명, ramp-up 60초 | 코드 완료. 2026-08-12 1차 시도했으나 로컬 PC TCP 소켓 한계로 결과 신뢰 불가 — 환경 교체(WSL2 등) 후 재시도 예정 |
 
 ---
