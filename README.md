@@ -137,23 +137,7 @@ Redis 연동 — 추후 작성
 
 ## 5. ERD
 
-전체 컬럼을 포함한 정식 ERD는 [`docs/planning/06_ERD.dbml.txt`](docs/planning/06_ERD.dbml.txt) 참고(dbdiagram.io에 그대로 붙여넣기 가능). 아래는 도메인 간 관계를 단순화한 다이어그램입니다.
-
-```
-회원(users)
-  ├─▶ 오더(orders) ──────────────▶ 등급재산정이력(membership_tier_log)
-  │        [완료 주문 수 → 매월 1일 배치가 membership_tier 재산정]
-  │
-  └─▶ 발급이력(coupon_issue) ◀── 캠페인(campaign) ──▶ 쿠폰정책(coupon)  [1:1]
-              │
-              └─▶ 상태변경이력(coupon_state_log)
-                   [ISSUED → USED / CANCELED / EXPIRED, 역행 불가]
-```
-
-- `campaign.min_membership_tier` (nullable) — 회원 전용 쿠폰 eligibility, NULL이면 전 회원 대상
-- `coupon_issue.issued_membership_tier` — 발급 시점 등급 스냅샷 (이후 등급이 바뀌어도 이미 발급된 쿠폰의 할인율은 불변)
-- `coupon_issue.idempotency_key` (unique) — 중복 발급 요청 방어
-- `(campaign_id, user_id)` unique — 1인 1매 방어 (동시성 전략과 무관한 최종 방어선)
+<img width="1750" height="1550" alt="drawSQL-image-export-2026-08-14" src="https://github.com/user-attachments/assets/ad4d3b2e-d124-4447-865e-a6167297e1b7" />
 
 ---
 
