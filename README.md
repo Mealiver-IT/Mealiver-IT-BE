@@ -263,7 +263,7 @@ public enum CouponStatus {
 
 > **구현 완료** — 아래는 확정된 설계이자 실제 적용된 구현입니다 (`docs/planning/04_아키텍처.txt` 5절).
 
-- **발급**: 클라이언트가 매 요청마다 `Idempotency-Key` 헤더를 전송, `coupon_issue.idempotency_key`의 UNIQUE 제약으로 동일 키 재요청을 DB가 거부. 재요청 시 `201`이 아닌 `200`과 기존 발급 결과를 그대로 반환(k6 리허설 스펙으로 검증 완료). Redis 도입 전인 V1.0에서는 비관적 락(row lock)이 재고 확보를 담당.
+- **발급**: 클라이언트가 매 요청마다 `Idempotency-Key` 헤더를 전송, `coupon_issue.idempotency_key`의 UNIQUE 제약으로 동일 키 재요청을 DB가 거부. 재요청 시 created인 `201`이 아닌 OK `200`과 기존 발급 결과를 그대로 반환 받아 새로 발급이 아닌 재사용이라는 것을 알 수 있음 (k6 리허설 스펙으로 검증 완료). Redis 도입 전인 V1.0에서는 비관적 락(row lock)이 재고 확보를 담당.
 - **상태전이(사용/취소/만료)**: 호출측(`OrderService`)이 재시도 시에도 동일하게 넘기는 `requestId`를 `coupon_state_log`의 `uk_state_log_request` UNIQUE 제약으로 걸어 동일 요청의 중복 처리를 DB 레벨에서 차단. `@Version`(낙관적 락)과 유니크 제약 경합 모두 `@Retryable`로 최대 3회 지수 백오프 재시도.
 - 동일 `requestId`로 100개 동시 재전송하는 통합테스트(`CouponIssueServiceConcurrencyTest`)로, 예외 없이 전부 성공하고 상태전이 로그는 정확히 1건만 남는지 검증했습니다.
 
