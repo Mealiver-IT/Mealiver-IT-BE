@@ -20,7 +20,7 @@ public enum ErrorCode {
     CAMPAIGN_STATE_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 먼저 캠페인 상태를 변경했습니다. 다시 시도해주세요."),
 
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 주문입니다."),
-
+    ORDER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "본인의 주문만 조회할 수 있습니다."),
 
 
 
