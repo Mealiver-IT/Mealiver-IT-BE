@@ -1,9 +1,11 @@
 package com.mealiverit.api.membership.controller;
 
 import com.mealiverit.api.common.response.ApiResponse;
+import com.mealiverit.api.membership.dto.MembershipRefreshResponse;
 import com.mealiverit.api.membership.dto.MembershipResponse;
 import com.mealiverit.api.membership.service.MembershipService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,5 +22,12 @@ public class MembershipController {
     @GetMapping("/api/members/me/membership")
     public ApiResponse<MembershipResponse> getMembership(@RequestHeader("X-User-Id") Long userId) {
         return ApiResponse.success(membershipService.getMembership(userId));
+    }
+
+    // 계급 갱신 수동 실행 - 관리자가 스케쥴러 배치를 즉시 트리거
+    // 다른 admin API들과 동일하게 별도 인증 없음
+    @PostMapping("/api/admin/membership/refresh")
+    public ApiResponse<MembershipRefreshResponse> refresh() {
+        return ApiResponse.success(membershipService.refreshTiers());
     }
 }
