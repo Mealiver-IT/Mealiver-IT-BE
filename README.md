@@ -96,21 +96,8 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ## 4. 시스템 아키텍처
 
-```mermaid
-graph TD
-    Client["클라이언트<br/>이벤트·결제 페이지 실동작 / 나머지 정적 mockup"] -->|REST| API["Controller 계층<br/>발급 · 상태전이 · 주문 · 캠페인"]
-    API --> Service["Service 계층<br/>CouponIssuanceService · CouponIssueService"]
-    Service --> MySQL[(MySQL)]
-    Service -.V2 연동예정.-> Redis[(Redis<br/>이중 카운터 게이트)]
-    Service --> Event["CouponIssuedEvent<br/>AFTER_COMMIT + Async"] --> Notify[MockNotificationSender]
+<img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/6e1c1ddb-97e5-40ef-9b36-e5efd2727488" />
 
-    Scheduler["Scheduler (ShedLock)"] --> Batch1[MembershipTierBatchJob]
-    Scheduler --> Batch2[CouponExpirationBatchJob]
-    Batch1 --> MySQL
-    Batch2 --> MySQL
-
-    Seed["Seed 파이프라인<br/>User→Order→Tier→Campaign→CouponIssue"] --> MySQL
-```
 
 ### 로컬 / 팀 공유 개발 환경
 
