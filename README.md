@@ -255,7 +255,7 @@ public enum CouponStatus {
 - `markUsed` — `OrderService`가 결제완료(`POST /api/orders`) 처리 중 내부 호출
 - `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
 - `markCanceled` — `CouponController`의 관리자 강제회수(`POST /api/admin/coupons/{issueId}/revoke`)에서 호출
-- 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException}, maxAttempts = 3)`로 지수 백오프 재시도
+- 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException, AssertionFailure}, maxAttempts = 3)`로 지수 백오프 재시도
 
 ---
 
