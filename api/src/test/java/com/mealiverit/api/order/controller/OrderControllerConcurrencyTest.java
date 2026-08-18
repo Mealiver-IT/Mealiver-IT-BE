@@ -59,8 +59,8 @@ public class OrderControllerConcurrencyTest {
         registry.add("spring.datasource.url", mysql::getJdbcUrl);
         registry.add("spring.datasource.username", mysql::getUsername);
         registry.add("spring.datasource.password", mysql::getPassword);
-        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "110");
-        registry.add("spring.datasource.hikari.connection-timeout", () -> "60000");
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "10");
+        registry.add("spring.datasource.hikari.connection-timeout", () -> "30000");
     }
 
     @Autowired
