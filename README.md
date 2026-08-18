@@ -152,7 +152,8 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 | (d) Redis + Kafka 비동기 분리 | 강함 + eventual consistency | 매우 높음 | Redis + Kafka |
 | (e) Redisson 분산락 (`RLock`) | 강함 (캠페인 단위 락) | 낮음~중간 | Redis 필수 |
 | (f) Redis 이중 카운터 (`countReq`/`count` 분리) | 강함 (총 발급량이 재고를 절대 못 넘음이 증명됨) | 높음, Lua 대비 오버헤드 낮음 | Redis 필수 |
-여러 후보 중 (b) 낙관적 락은 (a)가 같은 목표를 더 단순하게 달성해 채택하지 않았고, (e) Redisson 분산락은 fencing token 부재(Kleppmann, 2016)로 정합성 목적에 안 맞아 기각, (d) Kafka 비동기 분리는 eventual consistency가 "즉시 정합성 검증" 평가 포인트와 맞지 않아 선택 확장으로 남겨뒀습니다.
+
+여러 후보 중 (b) 낙관적 락은 (a)가 같은 목표를 더 단순하게 달성해 채택하지 않았고, (e) Redisson 분산락은 fencing token 부재로 정합성 목적에 안 맞아 기각, (d) Kafka 비동기 분리는 eventual consistency가 "즉시 정합성 검증" 평가 포인트와 맞지 않아 선택 확장으로 남겨뒀습니다.
 ```mermaid
 flowchart LR
     V1["V1<br/>제어 없음"] --> V2["V2<br/>DB 비관적 락<br/>(a)"] --> V3a["V3a<br/>Redis Lua script<br/>(c)"] --> V3b["V3b<br/>Redis 이중 카운터<br/>(f)"] --> V4["V4<br/>Redis + DB 백스톱"]
