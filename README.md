@@ -98,18 +98,6 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 <img width="1920" height="1080" alt="system_architecture" src="https://github.com/user-attachments/assets/6e1c1ddb-97e5-40ef-9b36-e5efd2727488" />
 
-
-### 로컬 / 팀 공유 개발 환경
-
-```
-Docker 환경
-   └─ MySQL (local 프로필: 로컬 컨테이너 / remote 프로필: Tailscale로 연결되는 팀 공유 서버)
-
-Redis 연동 — 추후 작성
-```
-
-자세한 실행 방법은 [`api/src/main/java/com/mealiverit/api/seed/README.md`](api/src/main/java/com/mealiverit/api/seed/README.md) 참고.
-
 ---
 
 ## 5. 인프라 & 배포
