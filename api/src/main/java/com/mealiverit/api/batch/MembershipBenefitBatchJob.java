@@ -66,9 +66,14 @@ public class MembershipBenefitBatchJob {
 
     // 합성 캠페인 1개(등급+슬롯 단위) 발급 처리
     // 이름에 월/등급/슬롯을 그대로 노출해 디버깅하기 쉽게 함
+    // TODO(하드닝): issueSlot() 전체가 @Transactional이 아님 - 캠페인/쿠폰 생성, coupon_issue 벌크 삽입, markFullyIssued() 저장이 각각 별도 트랜잭션으로 커밋된다.
+    //  중간에 실패하면 "발급은 됐는데 remaining_stock은 그대로"인 상태가 남을 수 있음 (PR 리뷰 코멘트, 2026-08-19)
     private void issueSlot(YearMonth targetMonth, MembershipTier tier, int slot, BenefitCoupon benefit, List<Long> eligibleUserIds) {
         String campaignName = "MEMBERSHIP_BENEFIT_%s_%s_%d".formatted(targetMonth.format(MONTH_FORMAT), tier.name(), slot);
 
+        // TODO(하드닝): 캠페인 재사용 시 total_stock을 갱신하지 않음
+        //  같은 달에 이 배치가 두 번 실행되고 그 사이 대상 유저가 늘면(POST /api/admin/membership/refresh 수동 트리거로 실제 발생 가능)
+        //  실발급 건수가 total_stock을 넘어 검증쿼리(a)가 초과발급으로 오탐할 수 있음(PR 리뷰 코멘트, 2026-08-19)
         Campaign campaign = campaignRepository.findByName(campaignName)
                 .orElseGet(() -> campaignRepository.save(new Campaign(campaignName, eligibleUserIds.size(), tier, CampaignType.MEMBERSHIP_BENEFIT)));
         Coupon coupon = couponRepository.findByCampaignId(campaign.getId())
