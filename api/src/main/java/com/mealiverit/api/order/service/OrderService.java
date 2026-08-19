@@ -8,8 +8,10 @@ import com.mealiverit.api.order.dto.OrderResponse;
 import com.mealiverit.entity.order.Order;
 import com.mealiverit.entity.order.OrderRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class OrderService {
@@ -46,6 +48,26 @@ public class OrderService {
             couponIssueService.markReturnedToIssued(couponIssueId, requestId);
         }
         return OrderResponse.from(order);
+    }
+
+    // 주문 상세 조회 - 주문번호만 알면 남의 주문을 볼 수 없도록, 요청자(X-User-Id)와 주문 소유자가 같은지 검증
+    // 다르면 ORDER_ACCESS_DENIED(403)
+    @Transactional(readOnly = true)
+    public OrderResponse getOrder(Long orderId, Long userId) {
+        Order order = findOrderOrThrow(orderId);
+        if (!order.getUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.ORDER_ACCESS_DENIED);
+        }
+        return OrderResponse.from(order);
+    }
+
+    // 주문 목록 조회 - 헤더의 userId로 본인의 주문마 조회
+    // 쿼리 자체가 userId로 필터링되므로 getOrder 처럼 별도 소유권 체크는 필요 없음
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrders(Long userId) {
+        return orderRepository.findByUserIdOrderByOrderedAtDesc(userId).stream()
+                .map(OrderResponse::from)
+                .toList();
     }
 
     private Order findOrderOrThrow(Long orderId) {
