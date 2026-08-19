@@ -3,6 +3,7 @@ package com.mealiverit.api.campaign.controller;
 import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
 import com.mealiverit.api.campaign.dto.CampaignResponse;
 import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
+import com.mealiverit.api.campaign.dto.CampaignStockResponse;
 import com.mealiverit.api.campaign.service.CampaignAdminService;
 import com.mealiverit.api.common.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -37,6 +38,12 @@ public class CampaignController {
     @GetMapping("/{id}")
     public ApiResponse<CampaignResponse> getById(@PathVariable Long id) {
         return ApiResponse.success(campaignAdminService.getById(id));
+    }
+
+    // 선착순 잔여 수량 조회 - 별도 인증 없음(관리자 CRUD와 같은 컨트롤러를 공유하는 기존 패턴 유지)
+    @GetMapping("/{campaignId}/stock")
+    public ApiResponse<CampaignStockResponse> getStock(@PathVariable Long campaignId) {
+        return ApiResponse.success(campaignAdminService.getStock(campaignId));
     }
 
     @GetMapping

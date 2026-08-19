@@ -3,6 +3,7 @@ package com.mealiverit.api.campaign.service;
 import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
 import com.mealiverit.api.campaign.dto.CampaignResponse;
 import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
+import com.mealiverit.api.campaign.dto.CampaignStockResponse;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
@@ -44,6 +45,14 @@ public class CampaignAdminService {
         Campaign campaign = findCampaignOrThrow(campaignId);
         Coupon coupon = couponRepository.findByCampaignId(campaignId).orElse(null);
         return CampaignResponse.of(campaign, coupon);
+    }
+
+    // 선착순 잔여 수량 조회 - 발급 로직이 직접 건드리는 remainingStock을 그대로 조회만 함
+    // 이 메소드 자체는 재고에 관여하지 않음
+    @Transactional(readOnly = true)
+    public CampaignStockResponse getStock(Long campaignId) {
+        Campaign campaign = findCampaignOrThrow(campaignId);
+        return CampaignStockResponse.from(campaign);
     }
 
     @Transactional(readOnly = true)

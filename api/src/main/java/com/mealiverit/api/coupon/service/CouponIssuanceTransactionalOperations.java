@@ -89,7 +89,7 @@ class CouponIssuanceTransactionalOperations {
         // 신규 발급 성공 시(이 지점에 도달했다는 건 uk 제약 위반 없이 INSERT가 끝났다는 뜻)에만 발행.
         // 발급 트랜잭션과 알림 발송을 분리하기 위한 이벤트 — 실제 발송은 CouponIssuedNotificationListener가
         // 이 트랜잭션이 커밋된 뒤(@TransactionalEventListener AFTER_COMMIT)에만 수행한다.
-        eventPublisher.publishEvent(new CouponIssuedEvent(userId, issue.getCouponCode()));
+        eventPublisher.publishEvent(new CouponIssuedEvent(userId, issue.getCouponCode(), campaignId));
         return IssueResult.success(issue);
     }
 
