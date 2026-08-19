@@ -9,4 +9,4 @@ FROM campaign c
 LEFT JOIN coupon_issue ci ON ci.campaign_id = c.id
 GROUP BY c.id, c.total_stock
 HAVING COUNT(ci.id) > c.total_stock
-ORDER BY c.id;
+-- ORDER BY c.id;
