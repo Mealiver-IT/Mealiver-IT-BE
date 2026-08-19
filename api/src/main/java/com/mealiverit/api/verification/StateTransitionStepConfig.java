@@ -8,6 +8,7 @@ import org.springframework.batch.infrastructure.item.database.JdbcPagingItemRead
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.repeat.RepeatStatus;
 import org.springframework.batch.infrastructure.item.ExecutionContext;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.batch.infrastructure.item.Chunk;
@@ -16,7 +17,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import javax.sql.DataSource;
 import java.util.Map;
 
+// ConsistencyVerificationJobConfig 참고 - 같은 조건으로 같이 켜고 끈다.
 @Configuration
+@ConditionalOnProperty(name = "app.consistency-verification.enabled", havingValue = "true")
 public class StateTransitionStepConfig {
 
     public record MissingLogRow(
