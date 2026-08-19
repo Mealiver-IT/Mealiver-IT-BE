@@ -124,6 +124,29 @@
 			<artifactId>shedlock-provider-jdbc-template</artifactId>
 			<version>7.7.0</version>
 		</dependency>
+		<dependency>
+		    <groupId>com.mysql</groupId>
+		    <artifactId>mysql-connector-j</artifactId>
+		    <scope>runtime</scope>
+		</dependency>
+		<dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+
+    <!-- 2. Spring Batch -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-batch</artifactId>
+    </dependency>
+
+    <!-- 3. Spring Batch 테스트용 (선택 사항) -->
+    <dependency>
+        <groupId>org.springframework.batch</groupId>
+        <artifactId>spring-batch-test</artifactId>
+        <scope>test</scope>
+    </dependency>
 	</dependencies>
 
 	<build>
