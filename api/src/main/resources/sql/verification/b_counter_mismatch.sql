@@ -19,4 +19,4 @@ SELECT * FROM (
     ) actual ON actual.campaign_id = c.id
 ) t
 WHERE t.counter_issued <> t.issued_count
-ORDER BY t.campaign_id;
+-- ORDER BY t.campaign_id;
