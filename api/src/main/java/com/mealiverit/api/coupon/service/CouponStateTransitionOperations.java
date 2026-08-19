@@ -6,6 +6,7 @@ import com.mealiverit.entity.coupon.CouponStatus;
 import com.mealiverit.entity.coupon.entity.CouponIssue;
 import com.mealiverit.entity.coupon.entity.CouponStateLog;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
+import com.mealiverit.entity.coupon.CouponStateChangeReason;
 import com.mealiverit.entity.coupon.repository.CouponStateLogRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +36,7 @@ public class CouponStateTransitionOperations {
         CouponIssue issue = findIssueOrThrow(issueId);
         CouponStatus before = issue.getStatus();
         issue.markUsed();
-        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId, CouponStateChangeReason.ORDER_PAYMENT));
     }
 
     @Transactional
@@ -46,7 +47,7 @@ public class CouponStateTransitionOperations {
         CouponIssue issue = findIssueOrThrow(issueId);
         CouponStatus before = issue.getStatus();
         issue.markCanceled();
-        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId, CouponStateChangeReason.ADMIN_REVOKE));
     }
 
     @Transactional
@@ -57,7 +58,7 @@ public class CouponStateTransitionOperations {
         CouponIssue issue = findIssueOrThrow(issueId);
         CouponStatus before = issue.getStatus();
         issue.markReturnedToIssued();
-        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId));
+        couponStateLogRepository.save(new CouponStateLog(issueId, before, issue.getStatus(), requestId, CouponStateChangeReason.ORDER_CANCEL));
     }
 
     private CouponIssue findIssueOrThrow(Long issueId) {
