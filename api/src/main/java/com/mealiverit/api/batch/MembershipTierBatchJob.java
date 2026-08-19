@@ -57,15 +57,18 @@ public class MembershipTierBatchJob {
     private static final int UPDATE_CHUNK_SIZE = 1_000;
 
     private final JdbcTemplate jdbcTemplate;
+    private final MembershipBenefitBatchJob membershipBenefitBatchJob;
 
-    public MembershipTierBatchJob(JdbcTemplate jdbcTemplate) {
+    public MembershipTierBatchJob(JdbcTemplate jdbcTemplate, MembershipBenefitBatchJob membershipBenefitBatchJob) {
         this.jdbcTemplate = jdbcTemplate;
+        this.membershipBenefitBatchJob = membershipBenefitBatchJob;
     }
 
     // 04_아키텍처.txt 6.2절: 매월 1일 새벽, 직전 캘린더 월 실적으로 재산정
     @Scheduled(cron = "0 0 2 1 * *")
     public void runMonthly() {
         run(YearMonth.now().minusMonths(1));
+        membershipBenefitBatchJob.run(YearMonth.now());
     }
 
     public Result run(YearMonth targetMonth) {
