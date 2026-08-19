@@ -1,6 +1,7 @@
 package com.mealiverit.entity.campaign;
 
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -25,4 +26,8 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     // MembershipBenefitBatchJob의 합성 캠페인 재실행(idempotency) 판단용
     // 이름으로 기존 캠페인 조회
     Optional<Campaign> findByName(String name);
+
+    // CampaignStockSnapshotReconciliationJob이 주기적으로 Redis 스냅샷을 재동기화할 대상 조회용.
+    // CLOSED/READY 캠페인은 신규 발급 요청 자체가 안 들어오므로 대상에서 제외한다.
+    List<Campaign> findByStatus(CampaignStatus status);
 }
