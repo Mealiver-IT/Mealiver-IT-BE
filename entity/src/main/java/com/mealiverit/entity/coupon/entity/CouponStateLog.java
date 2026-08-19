@@ -1,6 +1,7 @@
 package com.mealiverit.entity.coupon.entity;
 
 import com.mealiverit.entity.coupon.CouponStatus;
+import com.mealiverit.entity.coupon.CouponStateChangeReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -39,6 +40,11 @@ public class CouponStateLog {
     @Column(nullable = false, unique = true)
     private String requestId;
 
+    // 상태가 왜 바뀌었는지 (상태전이 세분화 대응)
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private CouponStateChangeReason reason;
+
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -47,11 +53,12 @@ public class CouponStateLog {
         // JPA
     }
 
-    public CouponStateLog(Long couponIssueId, CouponStatus fromStatus, CouponStatus toStatus, String requestId) {
+    public CouponStateLog(Long couponIssueId, CouponStatus fromStatus, CouponStatus toStatus, String requestId, CouponStateChangeReason reason) {
         this.couponIssueId = couponIssueId;
         this.fromStatus = fromStatus;
         this.toStatus = toStatus;
         this.requestId = requestId;
+        this.reason = reason;
     }
 
     public Long getId() {
@@ -73,6 +80,8 @@ public class CouponStateLog {
     public String getRequestId() {
         return requestId;
     }
+
+    public CouponStateChangeReason getReason() { return reason; }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
