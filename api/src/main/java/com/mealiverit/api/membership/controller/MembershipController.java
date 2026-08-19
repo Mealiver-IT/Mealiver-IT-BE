@@ -1,6 +1,7 @@
 package com.mealiverit.api.membership.controller;
 
 import com.mealiverit.api.common.response.ApiResponse;
+import com.mealiverit.api.coupon.dto.CouponIssueResponse;
 import com.mealiverit.api.membership.dto.MembershipRefreshResponse;
 import com.mealiverit.api.membership.dto.MembershipResponse;
 import com.mealiverit.api.membership.service.MembershipService;
@@ -8,6 +9,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 public class MembershipController {
@@ -29,5 +32,11 @@ public class MembershipController {
     @PostMapping("/api/admin/membership/refresh")
     public ApiResponse<MembershipRefreshResponse> refresh() {
         return ApiResponse.success(membershipService.refreshTiers());
+    }
+
+    // 계급별 혜택 조회 - X-User-Id 헤더로 본인이 받은 혜택 쿠폰만 조회(선착순 쿠폰은 /me/coupons 쪽)
+    @GetMapping("/api/members/me/benefits")
+    public ApiResponse<List<CouponIssueResponse>> getBenefits(@RequestHeader("X-User-Id") Long userId) {
+        return ApiResponse.success(membershipService.getBenefits(userId));
     }
 }
