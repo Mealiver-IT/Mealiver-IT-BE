@@ -8,6 +8,7 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.JdbcPagingItemReader;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -17,7 +18,9 @@ import java.util.Map;
 
 import static com.mealiverit.api.verification.VerificationBatchConstants.PAGE_SIZE;
 
+// ConsistencyVerificationJobConfig 참고 - 같은 조건으로 같이 켜고 끈다.
 @Configuration
+@ConditionalOnProperty(name = "app.consistency-verification.enabled", havingValue = "true")
 public class MembershipEligibilityStepConfig {
 
     public record TierViolationRow(
