@@ -6,6 +6,7 @@ import org.springframework.batch.infrastructure.item.database.PagingQueryProvide
 import javax.sql.DataSource;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 public class SqlFilePagingQueryProvider implements PagingQueryProvider {
 
@@ -93,13 +94,16 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
         return 1;
     }
 
+    private static final Pattern LINE_COMMENT = Pattern.compile("--.*$", Pattern.MULTILINE);
+
     private static String removeTrailingSemicolon(String sql) {
-        String trimmed = sql.trim();
-
+        // 각 줄에서 -- 주석을 먼저 제거한 뒤, 진짜 마지막 SQL 토큰을 기준으로 세미콜론 여부를 판단한다.
+        // (c3_broken_chain.sql처럼 세미콜론 뒤에 한글 주석 줄이 붙어있어도 정상 처리됨)
+        String withoutComments = LINE_COMMENT.matcher(sql).replaceAll("");
+        String trimmed = withoutComments.trim();
         if (trimmed.endsWith(";")) {
-            return trimmed.substring(0, trimmed.length() - 1);
+            trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
         }
-
         return trimmed;
     }
 }

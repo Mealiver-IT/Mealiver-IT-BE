@@ -5,6 +5,8 @@
 -- 주의: LEFT JOIN 필수. INNER JOIN으로 쓰면 발급 이력이 0건인 캠페인이 조인에서 탈락해
 -- 검증 대상에서 통째로 빠진다 (01_설계보완_검토안.txt 0절 #2 참고).
 
+-- ORDER BY t.campaign_id;
+
 SELECT * FROM (
     SELECT c.id AS campaign_id,
            c.total_stock - c.remaining_stock AS counter_issued,
@@ -18,5 +20,5 @@ SELECT * FROM (
         GROUP BY campaign_id
     ) actual ON actual.campaign_id = c.id
 ) t
-WHERE t.counter_issued <> t.issued_count
--- ORDER BY t.campaign_id;
+WHERE t.counter_issued <> t.issued_count;
+

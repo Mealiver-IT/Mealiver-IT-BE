@@ -5,6 +5,9 @@
 -- 주의: users.membership_tier(현재 계급)와 비교하면 안 됨 — 계급은 매월 재산정되는 변동값이라
 -- 발급 후 강등된 유저가 false positive로 잡힌다. 반드시 발급 시점 스냅샷 컬럼과 비교한다.
 
+-- ORDER BY ci.id;
+
+
 SELECT ci.id, ci.user_id,
        ci.issued_membership_tier AS tier_at_issue,
        c.min_membership_tier AS required_tier,
@@ -14,5 +17,4 @@ FROM coupon_issue ci
 JOIN campaign c ON c.id = ci.campaign_id
 WHERE c.min_membership_tier IS NOT NULL
   AND FIELD(ci.issued_membership_tier, 'PRIVATE','PFC','CORPORAL','SERGEANT')
-    < FIELD(c.min_membership_tier, 'PRIVATE','PFC','CORPORAL','SERGEANT')
--- ORDER BY ci.id;
+    < FIELD(c.min_membership_tier, 'PRIVATE','PFC','CORPORAL','SERGEANT');
