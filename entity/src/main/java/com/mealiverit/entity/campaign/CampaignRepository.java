@@ -21,4 +21,8 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     @Query("UPDATE Campaign c SET c.remainingStock = c.remainingStock - 1 "
             + "WHERE c.id = :campaignId AND c.remainingStock > 0")
     int decreaseStockIfAvailable(@Param("campaignId") Long campaignId);
+
+    // MembershipBenefitBatchJob의 합성 캠페인 재실행(idempotency) 판단용
+    // 이름으로 기존 캠페인 조회
+    Optional<Campaign> findByName(String name);
 }
