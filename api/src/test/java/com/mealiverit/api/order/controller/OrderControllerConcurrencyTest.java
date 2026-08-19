@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -83,9 +82,8 @@ public class OrderControllerConcurrencyTest {
     @Test
     void 동일_idempotencyKey로_주문취소_100개_동시요청해도_전부_성공하고_쿠폰상태전이는_한번만() throws InterruptedException {
         Long couponIssueId = createUsedCoupon();
-        Long orderId = createOrder();
+        Long orderId = createOrder(couponIssueId);
         String idempotencyKey = "cancel-" + UUID.randomUUID();
-        String body = "{\"couponIssueId\":" + couponIssueId + "}";
         int requesters = 100;
 
         List<Throwable> unexpected = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -100,9 +98,7 @@ public class OrderControllerConcurrencyTest {
                 await(start);
                 try {
                     var result = mockMvc.perform(patch("/api/orders/{orderId}/cancel", orderId)
-                                    .header("Idempotency-Key", idempotencyKey)
-                                    .contentType(MediaType.APPLICATION_JSON)
-                                    .content(body))
+                                    .header("Idempotency-Key", idempotencyKey))
                             .andReturn();
                     if (result.getResponse().getStatus() != 200) {
                         unexpected.add(new IllegalStateException(result.getResponse().getContentAsString()));
@@ -153,8 +149,8 @@ public class OrderControllerConcurrencyTest {
         return issueId;
     }
 
-    private Long createOrder() {
-        Order order = new Order(1L, BigDecimal.valueOf(10000), BigDecimal.valueOf(9000), LocalDateTime.now());
+    private Long createOrder(Long couponIssueId) {
+        Order order = new Order(1L, BigDecimal.valueOf(10000), BigDecimal.valueOf(9000), LocalDateTime.now(), couponIssueId);
         return orderRepository.save(order).getId();
     }
 }
