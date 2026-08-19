@@ -29,4 +29,4 @@ SELECT * FROM (
     ) computed ON computed.user_id = u.id
 ) t
 WHERE t.current_tier <> t.expected_tier
-ORDER BY t.user_id;
+-- ORDER BY t.user_id;

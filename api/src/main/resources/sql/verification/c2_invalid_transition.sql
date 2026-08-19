@@ -8,4 +8,4 @@ SELECT * FROM coupon_state_log
 WHERE CONCAT(COALESCE(from_status, '\0'), '|', to_status) NOT IN (
     'ISSUED|USED', 'ISSUED|CANCELED', 'ISSUED|EXPIRED', 'USED|CANCELED', 'USED|ISSUED'
 )
-ORDER BY id;
+-- ORDER BY id;

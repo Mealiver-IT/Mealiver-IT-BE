@@ -3,6 +3,7 @@ package com.mealiverit.api.verification;
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,7 +11,9 @@ import javax.sql.DataSource;
 
 import static com.mealiverit.api.verification.VerificationBatchConstants.INSERT_VERIFICATION_RESULT_SQL;
 
+// ConsistencyVerificationJobConfig 참고 - 같은 조건으로 같이 켜고 끈다.
 @Configuration
+@ConditionalOnProperty(name = "app.consistency-verification.enabled", havingValue = "true")
 public class VerificationWriterConfig {
 
     // @StepScope: "#{stepExecution.jobExecutionId}"로 실행 중인 Step의 job_execution_id를 늦은 바인딩으로

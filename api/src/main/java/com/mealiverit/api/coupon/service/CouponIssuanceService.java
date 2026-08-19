@@ -3,7 +3,10 @@ package com.mealiverit.api.coupon.service;
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
+import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
+import com.mealiverit.entity.coupon.repository.CouponRepository;
+import com.mealiverit.entity.user.MembershipTier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -19,17 +22,26 @@ import org.springframework.stereotype.Service;
 // Redis 스냅샷으로 "확실한 품절"만 미리 걸러낸다. 재고 판단 자체는 여전히 DB(StockReservationStrategy)가
 // 하고, 이 사전 필터는 이미 끝난 게 뻔한 요청이 DB 커넥션/락 대기열까지 안 가게 해서 부하를 줄이는
 // 최적화일 뿐이다 - Redis 게이트(countReq/count 등 원자적 연산으로 발급 여부를 직접 결정)가 아니다.
+//
+// 2026-08-19 락 구간 축소: 쿠폰 정책 조회는 캠페인 락과 무관한 정적 데이터라 락을 잡기 전에
+// 미리 조회해둔다(CouponIssuanceTransactionalOperations 주석 참고). reserveStock()(락 있음)과
+// insertCouponIssue()(락 없음)를 별도 트랜잭션으로 호출하므로, insertCouponIssue() 이후 어떤
+// 실패든(uk 제약 위반이든 그 외 예외든) 반드시 compensateStockRollback()으로 재고를 되돌려야
+// 한다 - 더는 "같은 트랜잭션이라 자동 롤백된다"는 전제가 없다.
 @Service
 public class CouponIssuanceService {
 
     private final CouponIssueRepository couponIssueRepository;
+    private final CouponRepository couponRepository;
     private final CouponIssuanceTransactionalOperations transactionalOperations;
     private final CampaignStockCache campaignStockCache;
 
     public CouponIssuanceService(CouponIssueRepository couponIssueRepository,
+                                  CouponRepository couponRepository,
                                   CouponIssuanceTransactionalOperations transactionalOperations,
                                   CampaignStockCache campaignStockCache) {
         this.couponIssueRepository = couponIssueRepository;
+        this.couponRepository = couponRepository;
         this.transactionalOperations = transactionalOperations;
         this.campaignStockCache = campaignStockCache;
     }
@@ -49,10 +61,24 @@ public class CouponIssuanceService {
         if (snapshot != null && snapshot <= 0) {
             throw new BusinessException(ErrorCode.SOLD_OUT);
         }
+
+        // 3) 쿠폰 정책은 캠페인 락과 무관한 정적 데이터라 락 밖에서 미리 조회 - 락을 짧게 유지하는 게 목적.
+        Coupon coupon = couponRepository.findByCampaignId(campaignId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
+
+        // 4) 캠페인 row 락을 잡는 유일한 구간. 리턴하는 순간 락이 풀린다.
+        MembershipTier userTier = transactionalOperations.reserveStock(userId, campaignId);
+
+        // 5) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 4)에서 확정한 재고를
+        // 반드시 되돌려야 한다.
         try {
-            return transactionalOperations.issueNew(userId, campaignId, idempotencyKey);
+            return transactionalOperations.insertCouponIssue(userId, campaignId, idempotencyKey, coupon, userTier);
         } catch (DataIntegrityViolationException e) {
+            transactionalOperations.compensateStockRollback(campaignId);
             return transactionalOperations.recoverFromConflict(campaignId, userId, e);
+        } catch (RuntimeException e) {
+            transactionalOperations.compensateStockRollback(campaignId);
+            throw e;
         }
     }
 }

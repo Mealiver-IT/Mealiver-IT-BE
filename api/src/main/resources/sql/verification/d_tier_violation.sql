@@ -15,4 +15,4 @@ JOIN campaign c ON c.id = ci.campaign_id
 WHERE c.min_membership_tier IS NOT NULL
   AND FIELD(ci.issued_membership_tier, 'PRIVATE','PFC','CORPORAL','SERGEANT')
     < FIELD(c.min_membership_tier, 'PRIVATE','PFC','CORPORAL','SERGEANT')
-ORDER BY ci.id;
+-- ORDER BY ci.id;

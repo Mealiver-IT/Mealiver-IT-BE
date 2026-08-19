@@ -9,6 +9,6 @@ FROM (
 ) t
 WHERE (prev_to_status IS NULL     AND from_status <> 'ISSUED')  -- 첫 로그는 반드시 ISSUED에서 출발
    OR (prev_to_status IS NOT NULL AND from_status <> prev_to_status)
-ORDER BY coupon_issue_id, id;
+-- ORDER BY coupon_issue_id, id;
 -- id는 AUTO_INCREMENT라 삽입 순서 = 전이 순서로 간주
 
