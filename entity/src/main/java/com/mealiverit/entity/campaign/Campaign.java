@@ -42,6 +42,10 @@ public class Campaign {
     @Column(length = 20)
     private MembershipTier minMembershipTier;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private CampaignType campaignType;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -51,11 +55,16 @@ public class Campaign {
     }
 
     public Campaign(String name, int totalStock, MembershipTier minMembershipTier) {
+        this(name, totalStock, minMembershipTier, CampaignType.FCFS);
+    }
+
+    public Campaign(String name, int totalStock, MembershipTier minMembershipTier, CampaignType campaignType) {
         this.name = name;
         this.totalStock = totalStock;
         this.remainingStock = totalStock;
         this.status = CampaignStatus.READY;
         this.minMembershipTier = minMembershipTier;
+        this.campaignType = campaignType;
     }
 
     public void open(LocalDateTime openAt, LocalDateTime closeAt) {
@@ -89,6 +98,12 @@ public class Campaign {
             throw new IllegalStateException("remainingStock cannot exceed totalStock");
         }
         this.remainingStock++;
+    }
+
+    // 혜택 배치는 reverse()/decreaseStock()을 거치지 않는 벌크 발급이라 발급 완료 후 remaining_stock을 직접 0으로 맞춰야 함
+    // 안 맞추면 검증쿼리 카운터 불일치로 잡힘
+    public void markFullyIssued() {
+        this.remainingStock = 0;
     }
 
     // 04_아키텍처.txt 6절: min_membership_tier가 NULL이면 항상 true,
@@ -131,6 +146,8 @@ public class Campaign {
     public MembershipTier getMinMembershipTier() {
         return minMembershipTier;
     }
+
+    public CampaignType getCampaignType() {return campaignType;}
 
     public Long getVersion() {
         return version;
