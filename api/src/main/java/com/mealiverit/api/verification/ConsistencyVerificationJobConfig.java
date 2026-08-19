@@ -28,24 +28,25 @@ import org.springframework.context.annotation.Configuration;
 @EnableJdbcJobRepository
 public class ConsistencyVerificationJobConfig {
 
-    @Bean
-    public Job dailyConsistencyVerificationJob(
-            JobRepository jobRepository,
-            Step stockCheckStep,
-            Step counterSyncStep,
-            Step stateTransitionStep,
-            Step membershipEligibilityStep
-    ) {
-        return new JobBuilder(
-                "DailyConsistencyVerificationJob",
-                jobRepository
-        )
-                .start(stockCheckStep)
-                .next(counterSyncStep)
-                .next(stateTransitionStep)
-                .next(membershipEligibilityStep)
-                .build();
-    }
+	@Bean
+	public Job dailyConsistencyVerificationJob(
+	        JobRepository jobRepository,
+	        Step stockCheckStep,
+	        Step counterSyncStep,
+	        Step missingLogStep,
+	        Step invalidTransitionStep,
+	        Step brokenChainStep,
+	        Step membershipEligibilityStep
+	) {
+	    return new JobBuilder("DailyConsistencyVerificationJob", jobRepository)
+	            .start(stockCheckStep)
+	            .next(counterSyncStep)
+	            .next(missingLogStep)
+	            .next(invalidTransitionStep)
+	            .next(brokenChainStep)
+	            .next(membershipEligibilityStep)
+	            .build();
+	}
 
     @Bean
     public Job tierOrdersMismatchJob(
