@@ -6,6 +6,7 @@ import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import com.mealiverit.entity.coupon.DiscountType;
 import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
@@ -58,6 +59,8 @@ class CouponIssuanceServiceTest {
     private CouponIssuanceService couponIssuanceService;
     @Autowired
     private CampaignRepository campaignRepository;
+    @Autowired
+    private CampaignStockShardRepository campaignStockShardRepository;
     @Autowired
     private CouponRepository couponRepository;
     @Autowired
@@ -114,7 +117,9 @@ class CouponIssuanceServiceTest {
         assertThat(successCount.get()).isEqualTo(stock);
         assertThat(soldOutCount.get()).isEqualTo(requesters - stock);
         assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(stock);
-        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isZero();
+        // campaign.remainingStock이 아니라 샤드 합계로 확인한다 - 전자는 비동기 리스너가 사후에
+        // 채워주는 값이라 동시성 검증 직후에는 아직 반영 전일 수 있다(2026-08-20 재고 샤딩).
+        assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isZero();
     }
 
     @Test
@@ -150,8 +155,7 @@ class CouponIssuanceServiceTest {
 
         assertThat(finishedInTime).as("모든 요청이 제한 시간 안에 끝났는지").isTrue();
         assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
-        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock())
-                .isEqualTo(stock - 1);
+        assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isEqualTo(stock - 1);
     }
 
     @Test
@@ -170,7 +174,7 @@ class CouponIssuanceServiceTest {
         assertThat(second.couponIssue().getId()).isEqualTo(first.couponIssue().getId());
         assertThat(second.couponIssue().getCouponCode()).isEqualTo(first.couponIssue().getCouponCode());
         assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
-        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isEqualTo(49);
+        assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isEqualTo(49);
     }
 
     private Long createCampaign(int stock) {

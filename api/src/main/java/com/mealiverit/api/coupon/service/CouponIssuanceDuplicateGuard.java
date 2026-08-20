@@ -3,7 +3,6 @@ package com.mealiverit.api.coupon.service;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -38,7 +37,9 @@ public class CouponIssuanceDuplicateGuard {
             // Redis 장애/타임아웃으로 acquired가 null이면 판단 불가 - 걸러내지 말고 통과시켜
             // DB(uk_campaign_user)가 최종 판단하게 한다.
             return !Boolean.FALSE.equals(acquired);
-        } catch (DataAccessException e) {
+        } catch (Exception e) {
+            // CampaignStockCache와 동일한 이유(2026-08-20 실측) - 커넥션 자체가 안 되면 Lettuce
+            // 예외가 DataAccessException으로 번역 안 된 채 새어나갈 수 있어 Exception 전체를 잡는다.
             log.warn("중복요청 가드 확인 실패 (campaignId={}, userId={}) - 통과시키고 DB가 최종 판단",
                     campaignId, userId, e);
             return true;

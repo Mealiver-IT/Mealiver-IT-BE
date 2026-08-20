@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShard;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
@@ -49,17 +51,39 @@ class CampaignStockSnapshotReconciliationJobTest {
     @Autowired
     private CampaignStockCache campaignStockCache;
     @Autowired
+    private CampaignStockShardRepository campaignStockShardRepository;
+    @Autowired
     private StringRedisTemplate redisTemplate;
 
     @Test
-    void 완판후_DB만_리셋된_상태에서도_재동기화하면_스냅샷이_DB값으로_복구된다() {
-        Long campaignId = createOpenCampaign(10_000);
-        // 테스트 리셋 SQL이 DB만 되돌리고 Redis는 그대로 둔 상황을 재현 - 직전 회차 완판으로 0에 고정.
+    void 완판후_샤드테이블만_리셋된_상태에서도_재동기화하면_스냅샷이_샤드합계로_복구된다() {
+        Long campaignId = createOpenCampaign(300);
+        // 직전 회차가 완판돼 샤드가 0, Redis 스냅샷도 정확히 0으로 기록된 상태를 재현.
+        campaignStockShardRepository.save(new CampaignStockShard(campaignId, 0, 0, 300));
         campaignStockCache.updateSnapshot(campaignId, 0);
+
+        // 테스트 리셋 스크립트가 "진짜 재고"인 샤드 테이블 값을 300으로 직접 되돌리고 Redis는
+        // 그대로 둔 상황 - deleteAll 후 재삽입으로 리셋 스크립트의 UPDATE를 흉내낸다.
+        campaignStockShardRepository.deleteAll();
+        campaignStockShardRepository.save(new CampaignStockShard(campaignId, 0, 300, 300));
 
         reconciliationJob.reconcile();
 
-        assertThat(campaignStockCache.getSnapshot(campaignId)).isEqualTo(10_000);
+        assertThat(campaignStockCache.getSnapshot(campaignId)).isEqualTo(300);
+        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isEqualTo(300);
+    }
+
+    @Test
+    void 샤드가_아직_생성되지_않은_캠페인은_재동기화_대상에서_제외된다() {
+        // 예약 시도가 한 번도 없어 샤드가 지연 생성되지 않은 상태 - 재동기화가 이 캠페인을
+        // 건드리면 합계(0)로 오판해 멀쩡한 신규 캠페인을 품절 처리하게 된다.
+        Long campaignId = createOpenCampaign(10_000);
+        campaignStockCache.updateSnapshot(campaignId, 500); // 임의의 값으로 캐시 미스가 아님을 확인
+
+        reconciliationJob.reconcile();
+
+        assertThat(campaignStockCache.getSnapshot(campaignId)).isEqualTo(500);
+        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isEqualTo(10_000);
     }
 
     @Test
