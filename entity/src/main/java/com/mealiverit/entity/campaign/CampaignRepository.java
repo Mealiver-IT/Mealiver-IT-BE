@@ -40,4 +40,11 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     // CampaignStockSnapshotReconciliationJob이 주기적으로 Redis 스냅샷을 재동기화할 대상 조회용.
     // CLOSED/READY 캠페인은 신규 발급 요청 자체가 안 들어오므로 대상에서 제외한다.
     List<Campaign> findByStatus(CampaignStatus status);
+
+    // 2026-08-20 재고 샤딩 도입 이후 campaign.remaining_stock은 더 이상 재고 판단의 원본이 아니다
+    // (CampaignStockShard 합계가 원본). 이 컬럼은 관리자 CRUD 화면/검증쿼리(b) 등 기존 코드가 계속
+    // 읽을 수 있도록, 스냅샷 리스너/재동기화 잡이 샤드 합계를 사후에 복사해두는 표시용 값이다.
+    @Modifying
+    @Query("UPDATE Campaign c SET c.remainingStock = :value WHERE c.id = :campaignId")
+    void setRemainingStock(@Param("campaignId") Long campaignId, @Param("value") int value);
 }

@@ -7,6 +7,7 @@ import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import com.mealiverit.entity.coupon.DiscountType;
 import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
@@ -60,6 +61,8 @@ class CouponIssuanceServiceDuplicateGuardTest {
     private UserRepository userRepository;
     @Autowired
     private CouponIssueRepository couponIssueRepository;
+    @Autowired
+    private CampaignStockShardRepository campaignStockShardRepository;
 
     @Test
     void 같은_유저의_거의_동시_중복요청은_캠페인_락_없이_즉시_거절된다() {
@@ -76,8 +79,10 @@ class CouponIssuanceServiceDuplicateGuardTest {
                         .isEqualTo(ErrorCode.DUPLICATE_REQUEST_IN_PROGRESS));
 
         // 정상 발급 1건만 존재하고, 재고도 1개만 소진됐어야 함(가드가 DB까지 안 갔다는 증거).
+        // campaign.remainingStock이 아니라 샤드 합계로 확인한다 - 전자는 비동기 리스너가 사후에
+        // 채워주는 값이라 동시성 검증 직후에는 아직 반영 전일 수 있다(2026-08-20 재고 샤딩).
         assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
-        assertThat(campaignRepository.findById(campaignId).orElseThrow().getRemainingStock()).isEqualTo(9);
+        assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isEqualTo(9);
     }
 
     @Test
