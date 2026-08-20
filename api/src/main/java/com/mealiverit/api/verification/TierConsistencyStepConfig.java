@@ -97,17 +97,13 @@ public class TierConsistencyStepConfig {
             ItemProcessor<TierMismatchRow, VerificationViolation> tierConsistencyProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder(
+        return VerificationStepFactory.chunkStep(
                 "tierConsistencyStep",
-                jobRepository
-        )
-                .<TierMismatchRow, VerificationViolation>chunk(
-                        PAGE_SIZE,
-                        transactionManager
-                )
-                .reader(tierConsistencyReader)
-                .processor(tierConsistencyProcessor)
-                .writer(verificationResultWriter)
-                .build();
+                jobRepository,
+                transactionManager,
+                tierConsistencyReader,
+                tierConsistencyProcessor,
+                verificationResultWriter
+        );
     }
 }

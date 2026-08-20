@@ -72,14 +72,13 @@ public class StockCheckStepConfig {
             ItemProcessor<StockViolationRow, VerificationViolation> stockCheckProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder("stockCheckStep", jobRepository)
-                .<StockViolationRow, VerificationViolation>chunk(
-                        PAGE_SIZE,
-                        transactionManager
-                )
-                .reader(stockCheckReader)
-                .processor(stockCheckProcessor)
-                .writer(verificationResultWriter)
-                .build();
+        return VerificationStepFactory.chunkStep(
+                "stockCheckStep",
+                jobRepository,
+                transactionManager,
+                stockCheckReader,
+                stockCheckProcessor,
+                verificationResultWriter
+        );
     }
 }
