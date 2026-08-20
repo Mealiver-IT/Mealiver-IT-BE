@@ -20,3 +20,6 @@ Thumbs.db
 # 더미데이터 시더 산출물 (소스 아님, 커밋 금지)
 users_20000.json
 *.json.seed
+
+# graphify 지식 그래프 산출물 (로컬 분석용, 커밋 금지)
+graphify-out/
