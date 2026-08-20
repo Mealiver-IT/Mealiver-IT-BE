@@ -1,15 +1,13 @@
 package com.mealiverit.api.campaign.service;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
-import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
-import com.mealiverit.api.campaign.dto.CampaignResponse;
-import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
-import com.mealiverit.api.campaign.dto.CampaignStockResponse;
+import com.mealiverit.api.campaign.dto.*;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.coupon.entity.Coupon;
+import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,12 +24,14 @@ public class CampaignAdminService {
     private final CampaignRepository campaignRepository;
     private final CouponRepository couponRepository;
     private final CampaignStockCache campaignStockCache;
+    private final CouponIssueRepository couponIssueRepository;
 
     public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository,
-                                 CampaignStockCache campaignStockCache) {
+                                 CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.campaignStockCache = campaignStockCache;
+        this.couponIssueRepository = couponIssueRepository;
     }
 
     @Transactional
@@ -59,6 +59,14 @@ public class CampaignAdminService {
         Campaign campaign = findCampaignOrThrow(campaignId);
         Integer cachedRemainingStock = campaignStockCache.getSnapshot(campaignId);
         return CampaignStockResponse.of(campaign, cachedRemainingStock);
+    }
+
+    // 선착순 발급 현황 통계 조회 - 발급 건수/잔여재고만 반환
+    @Transactional(readOnly = true)
+    public CampaignStatsResponse getStats(Long campaignId) {
+        Campaign campaign = findCampaignOrThrow(campaignId);
+        long issuedCount = couponIssueRepository.countByCampaignId(campaignId);
+        return CampaignStatsResponse.of(campaign, issuedCount);
     }
 
     @Transactional(readOnly = true)
