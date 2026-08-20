@@ -91,7 +91,7 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
     }
 
     private int countPagingParameters() {
-        return 1;
+        return getSortKeys().size();
     }
 
     private static final Pattern LINE_COMMENT = Pattern.compile("--.*$", Pattern.MULTILINE);
