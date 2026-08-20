@@ -84,12 +84,14 @@ public class StateTransitionStepConfig {
             ItemProcessor<MissingLogRow, VerificationViolation> missingLogProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder("missingLogStep", jobRepository)
-                .<MissingLogRow, VerificationViolation>chunk(PAGE_SIZE, transactionManager)
-                .reader(missingLogReader)
-                .processor(missingLogProcessor)
-                .writer(verificationResultWriter)
-                .build();
+        return VerificationStepFactory.chunkStep(
+                "missingLogStep",
+                jobRepository,
+                transactionManager,
+                missingLogReader,
+                missingLogProcessor,
+                verificationResultWriter
+        );
     }
 
     // ---- invalid-transition (c-2) ----
