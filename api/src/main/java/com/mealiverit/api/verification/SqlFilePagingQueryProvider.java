@@ -94,8 +94,10 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
         // 실제 파라미터 값은 몰라도 SQL 문법/컬럼 존재 여부 검증에는 null 바인딩으로 충분하다.
         Matcher matcher = NAMED_PARAM.matcher(baseSql);
         String positionalSql = matcher.replaceAll("?");
+        
+        Matcher countMatcher = NAMED_PARAM.matcher(baseSql);
         int paramCount = 0;
-        while (matcher.find()) {
+        while (countMatcher.find()) {
             paramCount++;
         }
 
