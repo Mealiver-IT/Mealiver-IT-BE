@@ -95,7 +95,7 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
         Matcher matcher = NAMED_PARAM.matcher(baseSql);
         String positionalSql = matcher.replaceAll("?");
         int paramCount = 0;
-        while (matcher.reset(baseSql).find()) {
+        while (matcher.find()) {
             paramCount++;
         }
 
