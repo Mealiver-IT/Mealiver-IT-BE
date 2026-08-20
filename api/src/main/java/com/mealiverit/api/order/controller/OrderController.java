@@ -1,7 +1,6 @@
 package com.mealiverit.api.order.controller;
 
 import com.mealiverit.api.common.response.ApiResponse;
-import com.mealiverit.api.order.dto.OrderCancelRequest;
 import com.mealiverit.api.order.dto.OrderCreateRequest;
 import com.mealiverit.api.order.dto.OrderResponse;
 import com.mealiverit.api.order.service.OrderService;
@@ -44,9 +43,7 @@ public class OrderController {
     // 관리자 강제회수 markCanceled와는 별개 경로
     @PatchMapping("/api/orders/{orderId}/cancel")
     public ApiResponse<OrderResponse> cancel(@PathVariable Long orderId,
-                                             @RequestHeader("Idempotency-Key") String requestId,
-                                             @RequestBody(required = false) OrderCancelRequest request) {
-        Long couponIssueId = request != null ? request.couponIssueId() : null;
-        return ApiResponse.success(orderService.cancelOrder(orderId, couponIssueId, requestId));
+                                             @RequestHeader("Idempotency-Key") String requestId) {
+        return ApiResponse.success(orderService.cancelOrder(orderId, requestId));
     }
 }

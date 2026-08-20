@@ -1,14 +1,13 @@
 package com.mealiverit.api.campaign.service;
 
-import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
-import com.mealiverit.api.campaign.dto.CampaignResponse;
-import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
-import com.mealiverit.api.campaign.dto.CampaignStockResponse;
+import com.mealiverit.api.campaign.cache.CampaignStockCache;
+import com.mealiverit.api.campaign.dto.*;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.coupon.entity.Coupon;
+import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,10 +23,15 @@ public class CampaignAdminService {
 
     private final CampaignRepository campaignRepository;
     private final CouponRepository couponRepository;
+    private final CampaignStockCache campaignStockCache;
+    private final CouponIssueRepository couponIssueRepository;
 
-    public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository) {
+    public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository,
+                                 CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
+        this.campaignStockCache = campaignStockCache;
+        this.couponIssueRepository = couponIssueRepository;
     }
 
     @Transactional
@@ -48,11 +52,21 @@ public class CampaignAdminService {
     }
 
     // 선착순 잔여 수량 조회 - 발급 로직이 직접 건드리는 remainingStock을 그대로 조회만 함
-    // 이 메소드 자체는 재고에 관여하지 않음
+    // 이 메소드 자체는 재고에 관여하지 않음. 실시간 대시보드가 이 API를 자주 폴링해도 발급
+    // 트랜잭션과 DB 커넥션을 다투지 않도록 Redis 스냅샷을 우선 사용하고, 캐시 미스일 때만 DB로 폴백한다.
     @Transactional(readOnly = true)
     public CampaignStockResponse getStock(Long campaignId) {
         Campaign campaign = findCampaignOrThrow(campaignId);
-        return CampaignStockResponse.from(campaign);
+        Integer cachedRemainingStock = campaignStockCache.getSnapshot(campaignId);
+        return CampaignStockResponse.of(campaign, cachedRemainingStock);
+    }
+
+    // 선착순 발급 현황 통계 조회 - 발급 건수/잔여재고만 반환
+    @Transactional(readOnly = true)
+    public CampaignStatsResponse getStats(Long campaignId) {
+        Campaign campaign = findCampaignOrThrow(campaignId);
+        long issuedCount = couponIssueRepository.countByCampaignId(campaignId);
+        return CampaignStatsResponse.of(campaign, issuedCount);
     }
 
     @Transactional(readOnly = true)
