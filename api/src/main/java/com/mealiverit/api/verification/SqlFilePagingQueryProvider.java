@@ -4,6 +4,11 @@ import org.springframework.batch.infrastructure.item.database.Order;
 import org.springframework.batch.infrastructure.item.database.PagingQueryProvider;
 
 import javax.sql.DataSource;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -81,8 +86,30 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
     }
 
     @Override
-    public void init(DataSource dataSource) {
-        // MySQL에서는 별도의 초기화가 필요하지 않다.
+    public void init(DataSource dataSource) throws Exception {
+        // baseSql과 sortKey가 유효한지 애플리케이션 기동(reader 빈 초기화) 시점에 미리 검증한다.
+        // 이게 없으면 SQL 오류가 실제 배치 실행(크론 트리거) 시점까지 안 걸린다.
+        String validationSql = "SELECT * FROM (%s) verification_result_validation LIMIT 0"
+                .formatted(baseSql);
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(validationSql);
+             ResultSet rs = ps.executeQuery()) {
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            boolean sortKeyExists = false;
+            for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                if (metaData.getColumnLabel(i).equalsIgnoreCase(sortKey)) {
+                    sortKeyExists = true;
+                    break;
+                }
+            }
+            if (!sortKeyExists) {
+                throw new IllegalStateException(
+                        "sortKey '%s' not found in query result columns".formatted(sortKey)
+                );
+            }
+        }
     }
 
     @Override
