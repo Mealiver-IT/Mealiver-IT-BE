@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SqlFilePagingQueryProvider implements PagingQueryProvider {
@@ -85,29 +86,43 @@ public class SqlFilePagingQueryProvider implements PagingQueryProvider {
         return getSortKeys();
     }
 
+    private static final Pattern NAMED_PARAM = Pattern.compile(":([\\p{L}\\p{N}_]+)");
+
     @Override
     public void init(DataSource dataSource) throws Exception {
-        // baseSql과 sortKey가 유효한지 애플리케이션 기동(reader 빈 초기화) 시점에 미리 검증한다.
-        // 이게 없으면 SQL 오류가 실제 배치 실행(크론 트리거) 시점까지 안 걸린다.
+        // named parameter(:월시작 등)를 ?로 치환해 순수 JDBC로도 dry-run 가능하게 만든다.
+        // 실제 파라미터 값은 몰라도 SQL 문법/컬럼 존재 여부 검증에는 null 바인딩으로 충분하다.
+        Matcher matcher = NAMED_PARAM.matcher(baseSql);
+        String positionalSql = matcher.replaceAll("?");
+        int paramCount = 0;
+        while (matcher.reset(baseSql).find()) {
+            paramCount++;
+        }
+
         String validationSql = "SELECT * FROM (%s) verification_result_validation LIMIT 0"
-                .formatted(baseSql);
+                .formatted(positionalSql);
 
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(validationSql);
-             ResultSet rs = ps.executeQuery()) {
+             PreparedStatement ps = conn.prepareStatement(validationSql)) {
 
-            ResultSetMetaData metaData = rs.getMetaData();
-            boolean sortKeyExists = false;
-            for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                if (metaData.getColumnLabel(i).equalsIgnoreCase(sortKey)) {
-                    sortKeyExists = true;
-                    break;
-                }
+            for (int i = 1; i <= paramCount; i++) {
+                ps.setObject(i, null);
             }
-            if (!sortKeyExists) {
-                throw new IllegalStateException(
-                        "sortKey '%s' not found in query result columns".formatted(sortKey)
-                );
+
+            try (ResultSet rs = ps.executeQuery()) {
+                ResultSetMetaData metaData = rs.getMetaData();
+                boolean sortKeyExists = false;
+                for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                    if (metaData.getColumnLabel(i).equalsIgnoreCase(sortKey)) {
+                        sortKeyExists = true;
+                        break;
+                    }
+                }
+                if (!sortKeyExists) {
+                    throw new IllegalStateException(
+                            "sortKey '%s' not found in query result columns".formatted(sortKey)
+                    );
+                }
             }
         }
     }
