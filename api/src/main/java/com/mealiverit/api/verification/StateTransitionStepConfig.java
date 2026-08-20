@@ -131,12 +131,14 @@ public class StateTransitionStepConfig {
             ItemProcessor<InvalidTransitionRow, VerificationViolation> invalidTransitionProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder("invalidTransitionStep", jobRepository)
-                .<InvalidTransitionRow, VerificationViolation>chunk(PAGE_SIZE, transactionManager)
-                .reader(invalidTransitionReader)
-                .processor(invalidTransitionProcessor)
-                .writer(verificationResultWriter)
-                .build();
+    	return VerificationStepFactory.chunkStep(
+    	        "invalidTransitionStep",
+    	        jobRepository,
+    	        transactionManager,
+    	        invalidTransitionReader,
+    	        invalidTransitionProcessor,
+    	        verificationResultWriter
+    	);
     }
 
     // ---- broken-chain (c-3) ----
@@ -177,11 +179,13 @@ public class StateTransitionStepConfig {
             ItemProcessor<BrokenChainRow, VerificationViolation> brokenChainProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder("brokenChainStep", jobRepository)
-                .<BrokenChainRow, VerificationViolation>chunk(PAGE_SIZE, transactionManager)
-                .reader(brokenChainReader)
-                .processor(brokenChainProcessor)
-                .writer(verificationResultWriter)
-                .build();
+    	return VerificationStepFactory.chunkStep(
+    	        "brokenChainStep",
+    	        jobRepository,
+    	        transactionManager,
+    	        brokenChainReader,
+    	        brokenChainProcessor,
+    	        verificationResultWriter
+    	);
     }
 }
