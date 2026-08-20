@@ -28,7 +28,8 @@ public class OrderService {
     // 주문 저장과 쿠폰 상태전이는 각자 독립된 트랜잭션으로 커밋된다.
     // markUsed 자체가 멱등키 + 재시도로 안전하므로 원자성을 잃어도 정합성엔 문제 없음.
     public OrderResponse createOrder(Long userId, OrderCreateRequest request, String requestId) {
-        Order order = new Order(userId, request.orderAmount(), request.paidAmount(), LocalDateTime.now());
+        // couponIssueId를 Order 생성 시점에 같이 저장 - 취소할 때 다시 안받아도 되도록
+        Order order = new Order(userId, request.orderAmount(), request.paidAmount(), LocalDateTime.now(), request.couponIssueId());
         orderRepository.save(order);
 
         if (request.couponIssueId() != null) {
@@ -39,13 +40,14 @@ public class OrderService {
 
     // 주문취소 - 쿠폰이 적용된 주문이었으면 안에서 재사용 가능하게 복귀 (markReturnedToIssued)
     // 관리자 강제회수(markCanceled)와는 별개 경로 - 여기선 절대 markCanceled() 안씀.
-    public OrderResponse cancelOrder(Long orderId, Long couponIssueId, String requestId) {
+    // couponIssueId 파라미터 제거 - 클라이언트가 안 보내도 order 자신이 들고 있는 값을 씀
+    public OrderResponse cancelOrder(Long orderId, String requestId) {
         Order order = findOrderOrThrow(orderId);
         order.cancel();
         orderRepository.save(order);
 
-        if (couponIssueId != null) {
-            couponIssueService.markReturnedToIssued(couponIssueId, requestId);
+        if (order.getCouponIssueId() != null) {
+            couponIssueService.markReturnedToIssued(order.getCouponIssueId(), requestId);
         }
         return OrderResponse.from(order);
     }
