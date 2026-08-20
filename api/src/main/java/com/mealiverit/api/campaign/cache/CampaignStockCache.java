@@ -3,7 +3,6 @@ package com.mealiverit.api.campaign.cache;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -34,7 +33,13 @@ public class CampaignStockCache {
     public void updateSnapshot(Long campaignId, int remainingStock) {
         try {
             redisTemplate.opsForValue().set(key(campaignId), String.valueOf(remainingStock), SNAPSHOT_TTL);
-        } catch (DataAccessException e) {
+        } catch (Exception e) {
+            // 2026-08-20 실측: 커넥션 자체가 안 되는 상황(Redis 미기동 등)에서는 Lettuce 예외가
+            // Spring의 DataAccessException으로 번역되지 않고 그대로 새어나갈 수 있었다. 이 메서드는
+            // CampaignStockSnapshotListener처럼 @Transactional 안에서 DB 쓰기 뒤에 호출되는 경우가
+            // 있어서, 여기서 예외가 새어나가면 그 트랜잭션 전체가 롤백되며 방금 반영한 DB 쓰기까지
+            // 같이 취소된다 - Redis 장애가 DB 반영을 망가뜨리면 안 되므로 DataAccessException이
+            // 아니라 Exception 전체를 잡는다.
             log.warn("Redis 재고 스냅샷 갱신 실패 (campaignId={}) - 캐시만 실패, DB는 정상 반영됨", campaignId, e);
         }
     }
@@ -46,7 +51,7 @@ public class CampaignStockCache {
         try {
             String value = redisTemplate.opsForValue().get(key(campaignId));
             return value == null ? null : Integer.valueOf(value);
-        } catch (DataAccessException e) {
+        } catch (Exception e) {
             log.warn("Redis 재고 스냅샷 조회 실패 (campaignId={}) - DB로 폴백", campaignId, e);
             return null;
         }
