@@ -1,0 +1,95 @@
+package com.mealiverit.api.coupon.service;
+
+import com.mealiverit.entity.campaign.Campaign;
+import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+// V6 — 재고 샤딩(2026-08-20). PessimisticLockStockReservationStrategy(원자 UPDATE, 락 보유시간
+// 축소)까지 적용해도 coupon_mixed_5k_x4.js 부하테스트에서 목표 달성률이 80%대에 머물렀다 - 20,000건이
+// 결국 campaign row 하나로 몰리는 처리량 자체의 한계였다(HikariCP 풀도 이 직렬화 대기 때문에
+// 소진됨, Prometheus 실측). 캠페인 재고를 N개의 독립된 row(CampaignStockShard)로 쪼개서,
+// InnoDB가 서로 다른 샤드는 동시에 잠글 수 있게 한다.
+//
+// 샤드 배정은 요청마다 고정이 아니라 매번 랜덤 시작 + 순차 폴백이다 - 하필 빈 샤드부터 시도해도
+// 다른 샤드에 재고가 남아있으면 자동으로 찾아간다. 재고가 넉넉한 구간에는 대부분 1번 시도로
+// 끝나 경합이 N분의 1로 분산되고, 막판 소진 직전에만 여러 샤드를 순회하는 비용이 붙는다.
+//
+// 샤드는 캠페인 생성 시점이 아니라 이 전략이 처음 그 캠페인을 다룰 때 지연 생성한다
+// (ensureShardsExist) - campaign.remaining_stock을 기준으로 나누므로, 이 마이그레이션 이전에
+// 이미 존재하던 캠페인(부분 발급된 것 포함)도 별도 백필 없이 정확한 값으로 자동 채워진다.
+// 인스턴스별 인메모리 집합으로 "이미 확인한 캠페인"을 기억해 이후 요청마다 존재여부 조회가
+// 반복되지 않게 한다 - 여러 인스턴스/스레드가 동시에 초기화를 시도해도 DB의 INSERT IGNORE +
+// UNIQUE(campaign_id, shard_index) 제약이 최종 안전망이라 중복 생성 걱정은 없다.
+@Component
+public class ShardedStockReservationStrategy implements StockReservationStrategy {
+
+    private static final Logger log = LoggerFactory.getLogger(ShardedStockReservationStrategy.class);
+    private static final int SHARD_COUNT = 10;
+
+    private final CampaignStockShardRepository shardRepository;
+    private final CampaignRepository campaignRepository;
+    private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
+
+    public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
+                                            CampaignRepository campaignRepository) {
+        this.shardRepository = shardRepository;
+        this.campaignRepository = campaignRepository;
+    }
+
+    @Override
+    public boolean reserve(Long campaignId) {
+        ensureShardsExist(campaignId);
+        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
+        for (int i = 0; i < SHARD_COUNT; i++) {
+            int shardIndex = (start + i) % SHARD_COUNT;
+            if (shardRepository.decreaseIfAvailable(campaignId, shardIndex) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void rollback(Long campaignId) {
+        ensureShardsExist(campaignId);
+        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
+        for (int i = 0; i < SHARD_COUNT; i++) {
+            int shardIndex = (start + i) % SHARD_COUNT;
+            if (shardRepository.increaseIfBelowCapacity(campaignId, shardIndex) > 0) {
+                return;
+            }
+        }
+        // 모든 샤드가 각자의 capacity에 이미 도달한 상태 - 정상 흐름에서는 방금 이 reserve()가
+        // 차감한 만큼은 항상 여유가 있어야 하므로 발생하면 안 된다. 재고 유실보다는 로그로
+        // 남기고 넘어가는 편이 안전하다(예외를 던지면 이미 실패한 발급 흐름의 예외 처리를 더 꼬이게 함).
+        log.warn("재고 원복 실패 - 모든 샤드가 capacity에 도달함 (campaignId={})", campaignId);
+    }
+
+    private void ensureShardsExist(Long campaignId) {
+        if (initializedCampaignIds.contains(campaignId)) {
+            return;
+        }
+        if (!shardRepository.existsByCampaignId(campaignId)) {
+            Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
+            if (campaign != null) {
+                createShards(campaignId, campaign.getRemainingStock());
+            }
+        }
+        initializedCampaignIds.add(campaignId);
+    }
+
+    private void createShards(Long campaignId, int totalToDistribute) {
+        int base = totalToDistribute / SHARD_COUNT;
+        int remainder = totalToDistribute % SHARD_COUNT;
+        for (int shardIndex = 0; shardIndex < SHARD_COUNT; shardIndex++) {
+            int value = base + (shardIndex < remainder ? 1 : 0);
+            shardRepository.insertIgnore(campaignId, shardIndex, value);
+        }
+    }
+}
