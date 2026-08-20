@@ -13,6 +13,10 @@ public enum ErrorCode {
     ALREADY_ISSUED(HttpStatus.CONFLICT, "이미 발급받은 쿠폰입니다."),
     // FR-FCFS-031(02_기능명세서_개정본.txt): 성공/조기마감/중복수령/등급미달/캠페인미오픈을 구분해서 안내해야 함
     CAMPAIGN_NOT_OPEN(HttpStatus.CONFLICT, "캠페인이 아직 열리지 않았거나 이미 마감되었습니다."),
+    // 2026-08-19 부하테스트(coupon_mixed_5k_x4.js) 실측: 같은 유저의 거의 동시 중복요청이 idempotency
+    // 체크(락 없는 SELECT)를 전부 통과해 캠페인 락을 반복 획득/롤백-재획득하며 hot row 경합을 증폭시킴.
+    // CouponIssuanceDuplicateGuard(Redis SETNX 기반 사전 필터)가 이 경우 DB까지 가지 않고 즉시 거부.
+    DUPLICATE_REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "동일 요청이 처리 중입니다. 잠시 후 다시 시도해주세요."),
 
     // 캠페인 관리자 CRUD/상태전이 관련
     CAMPAIGN_NOT_FOUND(HttpStatus.NOT_FOUND, "캠페인을 찾을 수 없습니다."),
