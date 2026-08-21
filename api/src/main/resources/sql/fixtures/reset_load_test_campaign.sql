@@ -2,10 +2,16 @@
 -- 설계 근거: docs/planning/03_버전사다리_실험설계.txt 6절 "매 실행 전 초기화" 1)/2).
 -- 특정 campaign_id의 발급 이력(coupon_issue/coupon_state_log)을 지우고
 -- remaining_stock을 total_stock으로 복원한다 — "재고는 있는데 카운터만 틀림" 같은
--- 카운터불일치 오염을 만들지 않으려면 숫자만 UPDATE하지 말고 반드시 이 3단계를 같이 해야 한다.
+-- 카운터불일치 오염을 만들지 않으려면 숫자만 UPDATE하지 말고 반드시 이 단계들을 같이 해야 한다.
 --
--- 이 스크립트 범위 밖(다른 담당 영역): Redis 카운터 키 삭제(3), 워밍업 실행(4),
--- k6 유저 목록 재사용(5) — 03_버전사다리 6절 원본 체크리스트 참고.
+-- 2026-08-20 재고 샤딩(campaign_stock_shard) 도입 이후: 이 스크립트가 campaign만 리셋하고
+-- 샤드 테이블을 안 건드리면, remaining_stock은 total_stock으로 돌아가도 샤드별 재고는 직전
+-- 회차의 소진된 값 그대로 남아 서로 어긋난다(8/20 300번 캠페인 재측정 때는 그 회차가 최초
+-- 샤딩 적용이라 우연히 문제 없었음). 그래서 샤드 행 자체를 지운다 - ShardedStockReservationStrategy가
+-- 다음 예약 시도 때 방금 리셋된 remaining_stock 기준으로 알아서 다시 만들어준다(지연 생성).
+--
+-- 이 스크립트 범위 밖(다른 담당 영역): Redis 스냅샷/중복요청 가드 키 삭제, 워밍업 실행,
+-- k6 유저 목록 재사용 — 03_버전사다리 6절 원본 체크리스트 참고.
 --
 -- 사용법: :campaign_id를 실제 캠페인 id로 치환한 뒤 실행
 --   sed 's/:campaign_id/20/g' reset_load_test_campaign.sql | mysql -h <host> -u <user> -p <db>
@@ -27,7 +33,11 @@ WHERE ci.campaign_id = :campaign_id;
 -- 2) 발급이력 삭제
 DELETE FROM coupon_issue WHERE campaign_id = :campaign_id;
 
--- 3) 재고 카운터를 total_stock으로 복원 (total_stock 자체를 바꾸고 싶으면 이 UPDATE 전에 별도로)
+-- 3) 재고 샤딩 행 삭제 - 지우기만 하면 됨(재계산 불필요). 다음 예약 시도 때 아래 4)에서 복원한
+-- remaining_stock 기준으로 ShardedStockReservationStrategy가 알아서 다시 만든다.
+DELETE FROM campaign_stock_shard WHERE campaign_id = :campaign_id;
+
+-- 4) 재고 카운터를 total_stock으로 복원 (total_stock 자체를 바꾸고 싶으면 이 UPDATE 전에 별도로)
 UPDATE campaign SET remaining_stock = total_stock WHERE id = :campaign_id;
 
 -- 리셋 후 확인 — actual_issued_after_reset=0, total_stock=remaining_stock이어야 정상
