@@ -8,7 +8,7 @@
 |---|---|---|
 | 언어/프레임워크 | Java + Spring Boot (Maven, `mvnw.cmd`) | 팀 확정 |
 | DB | MySQL | 확정 |
-| 캐시/원자연산 | Redis | 하드닝 단계 사전필터 캐시용 (확정, 전략 g — DB 선반영+스냅샷 캐시, V3. [2026-08-20] 전략 f 이중카운터/V3b 계획에서 변경) |
+| 캐시/원자연산 | Redis | 하드닝 단계 사전필터 캐시용 (확정, 전략 g — DB 선반영+스냅샷 캐시, V3. [2026-08-20] 전략 f 이중카운터/V3b 계획에서 변경). V4(재고 샤딩, 전략 h)는 Redis 없이 MySQL 샤드 테이블만으로 동작하며 V3의 Redis 캐시를 그대로 상속받아 사용 |
 | 메시지 큐 | Kafka (선택) | Phase 4 선택 확장에서만 검토 |
 | 인프라 | 앱은 로컬 Docker Compose(MySQL, Redis, 선택적 Kafka), DB는 Tailscale 경유 원격 호스트(`100.125.247.64:3306`) | 확정 |
 | 마이그레이션 | Flyway | `V1__create_core_tables.sql` 기준 |
