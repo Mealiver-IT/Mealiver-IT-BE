@@ -51,9 +51,12 @@ public class TierConsistencyStepConfig {
                         .atDay(1)
                         .atStartOfDay();
 
+        // sql/verification/e_tier_orders_mismatch.sql의 named parameter는 :월시작/:월종료다
+        // (수동 실행 안내 주석도 같은 이름 사용) - 여기서 다른 이름을 넘기면 NamedParameterJdbcTemplate이
+        // 파라미터를 못 찾아 매번 InvalidDataAccessApiUsageException으로 이 스텝이 실패한다.
         Map<String, Object> parameters = new HashMap<>();
-        parameters.put("monthStart", monthStart);
-        parameters.put("monthEnd", monthEnd);
+        parameters.put("월시작", monthStart);
+        parameters.put("월종료", monthEnd);
 
         return VerificationReaderFactory.create(
                 dataSource,
@@ -94,17 +97,13 @@ public class TierConsistencyStepConfig {
             ItemProcessor<TierMismatchRow, VerificationViolation> tierConsistencyProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder(
+        return VerificationStepFactory.chunkStep(
                 "tierConsistencyStep",
-                jobRepository
-        )
-                .<TierMismatchRow, VerificationViolation>chunk(
-                        PAGE_SIZE,
-                        transactionManager
-                )
-                .reader(tierConsistencyReader)
-                .processor(tierConsistencyProcessor)
-                .writer(verificationResultWriter)
-                .build();
+                jobRepository,
+                transactionManager,
+                tierConsistencyReader,
+                tierConsistencyProcessor,
+                verificationResultWriter
+        );
     }
 }

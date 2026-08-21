@@ -13,13 +13,18 @@ public record CampaignStockResponse(
         CampaignStatus status,
         boolean soldOut
 ) {
-    public static CampaignStockResponse from(Campaign campaign) {
+    // totalStock/status는 Redis에 없는 값이라 항상 DB(campaign) 기준. remainingStock만 캐시 우선 -
+    // cachedRemainingStock이 null(캐시 미스/Redis 장애)이면 DB 값으로 폴백해 최신 실시간 대시보드 폴링이
+    // 발급 트랜잭션과 DB 커넥션을 나눠 쓰지 않도록 한다. 캐시값이 안 맞아도 이 API는 조회 전용이라
+    // CouponIssuanceService의 실제 재고 판단에는 영향 없음.
+    public static CampaignStockResponse of(Campaign campaign, Integer cachedRemainingStock) {
+        int remainingStock = cachedRemainingStock != null ? cachedRemainingStock : campaign.getRemainingStock();
         return new CampaignStockResponse(
                 campaign.getId(),
                 campaign.getTotalStock(),
-                campaign.getRemainingStock(),
+                remainingStock,
                 campaign.getStatus(),
-                campaign.getRemainingStock() <= 0
+                remainingStock <= 0
         );
     }
 }

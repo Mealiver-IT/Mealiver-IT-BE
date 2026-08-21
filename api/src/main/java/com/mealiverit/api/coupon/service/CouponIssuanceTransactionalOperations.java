@@ -58,17 +58,22 @@ class CouponIssuanceTransactionalOperations {
         this.eventPublisher = eventPublisher;
     }
 
-    // 캠페인 row 락이 유지되는 유일한 구간. 이 메서드가 리턴하는 순간(=트랜잭션 커밋) 락이 풀린다.
+    // 2026-08-20 부하테스트(coupon_mixed_5k_x4.js) 실측: 예전엔 findByIdForUpdate()로 캠페인 row를
+    // 먼저 잠그고 그 안에서 eligibility까지 판정했다(당시엔 findById 이후 findByIdForUpdate로 같은
+    // @Version row를 다시 읽으면 ObjectOptimisticLockingFailureException이 났었음) - 그 결과 락이
+    // "애플리케이션 로직이 끝날 때까지" 유지돼 hot row 경합을 키웠다.
+    // stockReservationStrategy.reserve()가 이제 엔티티를 로드하지 않는 벌크 UPDATE라서(같은
+    // 영속성 컨텍스트에서 campaign을 두 번 로드하는 게 아님) 그 문제 없이 eligibility/오픈여부
+    // 판정을 락 없는 조회로 먼저 끝낼 수 있다. 트레이드오프: 이 조회와 실제 차감 UPDATE 사이
+    // 아주 짧은 순간 캠페인 상태가 바뀔 이론적 여지가 있지만(관리자가 그 찰나에 캠페인을 닫는 등),
+    // 캠페인 상태 전환은 라이브 발급 폭주 중에 일어나는 정상 이벤트가 아니라 감수 가능한 트레이드오프로
+    // 판단했다 - 재고 자체는 이 조회와 무관하게 decreaseStockIfAvailable()의 WHERE 조건이 실행
+    // 시점 최신값으로 다시 확인하므로 초과발급 위험은 없다.
     @Transactional
     MembershipTier reserveStock(Long userId, Long campaignId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
-        // campaign은 @Version 엔티티라 findById(락 없음) 이후 findByIdForUpdate(락 있음)로 같은 row를
-        // 다시 읽으면, 그 사이 다른 트랜잭션이 커밋할 경우 버전이 달라져
-        // ObjectOptimisticLockingFailureException이 난다(동시성 테스트로 실측 확인함).
-        // 락을 먼저 잡고 그 안에서 eligibility까지 판정 — "락 이전에 즉시 거부"라는 이상적 최적화는
-        // 포기하지만, 이 프로젝트는 성능이 아니라 정확성이 평가축이라 트레이드오프가 맞다.
-        Campaign campaign = campaignRepository.findByIdForUpdate(campaignId)
+        Campaign campaign = campaignRepository.findById(campaignId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
         // FR-FCFS-031: "캠페인 미오픈"은 품절/등급미달과 구분되는 별도 실패 사유다.
         // READY(아직 시작 전)/CLOSED(이미 종료) 둘 다 발급 대상이 아니므로 OPEN만 통과시킨다.
@@ -80,6 +85,8 @@ class CouponIssuanceTransactionalOperations {
             throw new BusinessException(ErrorCode.MEMBERSHIP_TIER_NOT_ELIGIBLE);
         }
 
+        // 캠페인 row에 락이 걸리는 유일한 구간 - decreaseStockIfAvailable()의 단일 UPDATE 문
+        // 실행 동안만 InnoDB가 암묵적으로 행을 잠근다.
         boolean reserved = stockReservationStrategy.reserve(campaignId);
         if (!reserved) {
             throw new BusinessException(ErrorCode.SOLD_OUT);

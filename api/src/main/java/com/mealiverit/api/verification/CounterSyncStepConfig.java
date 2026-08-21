@@ -75,14 +75,13 @@ public class CounterSyncStepConfig {
             ItemProcessor<CounterViolationRow, VerificationViolation> counterSyncProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder("counterSyncStep", jobRepository)
-                .<CounterViolationRow, VerificationViolation>chunk(
-                        PAGE_SIZE,
-                        transactionManager
-                )
-                .reader(counterSyncReader)
-                .processor(counterSyncProcessor)
-                .writer(verificationResultWriter)
-                .build();
+        return VerificationStepFactory.chunkStep(
+                "counterSyncStep",
+                jobRepository,
+                transactionManager,
+                counterSyncReader,
+                counterSyncProcessor,
+                verificationResultWriter
+        );
     }
 }

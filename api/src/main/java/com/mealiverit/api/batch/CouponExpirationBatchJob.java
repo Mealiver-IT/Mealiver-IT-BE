@@ -34,8 +34,8 @@ public class CouponExpirationBatchJob {
             + "WHERE id = ? AND status = 'ISSUED'";
 
     private static final String INSERT_LOG_SQL =
-            "INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, created_at) "
-            + "VALUES (?, 'ISSUED', 'EXPIRED', ?, ?)";
+            "INSERT INTO coupon_state_log (coupon_issue_id, from_status, to_status, request_id, reason, created_at) "
+            + "VALUES (?, 'ISSUED', 'EXPIRED', ?, 'SYSTEM_EXPIRY', ?)";
 
     private static final int BATCH_FLUSH_SIZE = 5000;
 

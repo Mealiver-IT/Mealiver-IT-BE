@@ -70,7 +70,7 @@ python api/src/test/K6/phase1/generate_users_20000.py
 `loginId="userN"` → `id=N+1` 매핑을 가정합니다(100만 유저 시더가 `users` 테이블에 가장 먼저, 순서대로 넣기 때문). **이 가정이 실제와 다를 수 있어서(시딩 순서가 바뀌었거나, 로컬/리모트가 다르게 리셋됐거나) 스크립트가 파일을 쓰기 전에 매번 실제 DB에 대고 자동으로 확인합니다** — `user0`/`user{count-1}`의 실제 `id`를 조회해서 예상과 다르면 파일을 쓰지 않고 에러로 중단합니다.
 
 - 기본은 로컬 DB(`docker exec mealiver-mysql`)로 검증합니다. Docker Desktop이 떠 있어야 합니다.
-- 리모트로 검증하려면: `python generate_users_20000.py --host 100.125.247.64 --port 3306 --user mealiver --password mealiver1234 --database mealiver`
+- 리모트로 검증하려면: `python generate_users_20000.py --host 100.125.247.64 --port 3306 --user <팀 채널에서 확인> --password <팀 채널에서 확인> --database mealiver` (계정 정보는 절대 커밋하지 말 것)
 - Docker가 없어서 검증을 못 하는 환경이면 `--skip-verify`로 건너뛸 수 있습니다(이 경우 매핑이 틀렸을 수도 있다는 걸 감수하는 것).
 
 ## 실행 시 주의

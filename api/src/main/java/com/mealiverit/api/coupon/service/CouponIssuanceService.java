@@ -35,15 +35,18 @@ public class CouponIssuanceService {
     private final CouponRepository couponRepository;
     private final CouponIssuanceTransactionalOperations transactionalOperations;
     private final CampaignStockCache campaignStockCache;
+    private final CouponIssuanceDuplicateGuard duplicateGuard;
 
     public CouponIssuanceService(CouponIssueRepository couponIssueRepository,
                                   CouponRepository couponRepository,
                                   CouponIssuanceTransactionalOperations transactionalOperations,
-                                  CampaignStockCache campaignStockCache) {
+                                  CampaignStockCache campaignStockCache,
+                                  CouponIssuanceDuplicateGuard duplicateGuard) {
         this.couponIssueRepository = couponIssueRepository;
         this.couponRepository = couponRepository;
         this.transactionalOperations = transactionalOperations;
         this.campaignStockCache = campaignStockCache;
+        this.duplicateGuard = duplicateGuard;
     }
 
     public IssueResult issue(Long userId, Long campaignId, String idempotencyKey) {
@@ -54,7 +57,15 @@ public class CouponIssuanceService {
     }
 
     private IssueResult issueNew(Long userId, Long campaignId, String idempotencyKey) {
-        // 2) Redis 스냅샷 사전 필터. null(캐시 미스/Redis 장애)이거나 재고가 남아있으면 DB로 그대로
+        // 2) 중복요청 사전 필터. 같은 (campaignId, userId)로 이미 진행 중인 요청이 있으면 캠페인 락을
+        // 아예 안 타고 즉시 거절한다 - idempotencyKey가 요청마다 달라서(재시도 등) 위의 findByIdempotencyKey
+        // 로는 못 거르는 케이스를 여기서 대신 거른다(2026-08-19 부하테스트 실측 - 다르지 않으면
+        // 이 가드 자체가 무의미).
+        if (!duplicateGuard.tryAcquire(campaignId, userId)) {
+            throw new BusinessException(ErrorCode.DUPLICATE_REQUEST_IN_PROGRESS);
+        }
+
+        // 3) Redis 스냅샷 사전 필터. null(캐시 미스/Redis 장애)이거나 재고가 남아있으면 DB로 그대로
         // 보낸다 - 여기서 "재고 있음"으로 통과시켜도 되고 안 해도 되고는 DB가 최종 판단하므로 무해하다.
         // 값이 0 이하로 확실할 때만 DB(커넥션/락 대기열)를 안 타고 즉시 거절한다.
         Integer snapshot = campaignStockCache.getSnapshot(campaignId);
@@ -62,14 +73,14 @@ public class CouponIssuanceService {
             throw new BusinessException(ErrorCode.SOLD_OUT);
         }
 
-        // 3) 쿠폰 정책은 캠페인 락과 무관한 정적 데이터라 락 밖에서 미리 조회 - 락을 짧게 유지하는 게 목적.
+        // 4) 쿠폰 정책은 캠페인 락과 무관한 정적 데이터라 락 밖에서 미리 조회 - 락을 짧게 유지하는 게 목적.
         Coupon coupon = couponRepository.findByCampaignId(campaignId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
 
-        // 4) 캠페인 row 락을 잡는 유일한 구간. 리턴하는 순간 락이 풀린다.
+        // 5) 캠페인 row 락을 잡는 유일한 구간. 리턴하는 순간 락이 풀린다.
         MembershipTier userTier = transactionalOperations.reserveStock(userId, campaignId);
 
-        // 5) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 4)에서 확정한 재고를
+        // 6) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 5)에서 확정한 재고를
         // 반드시 되돌려야 한다.
         try {
             return transactionalOperations.insertCouponIssue(userId, campaignId, idempotencyKey, coupon, userTier);
