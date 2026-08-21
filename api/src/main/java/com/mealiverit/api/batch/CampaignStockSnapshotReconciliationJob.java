@@ -40,6 +40,15 @@ public class CampaignStockSnapshotReconciliationJob {
         this.campaignStockCache = campaignStockCache;
     }
 
+    // 2026-08-21 실측: scheduledReconcile()가 프록시를 거쳐 정상 호출돼도, 그 안에서
+    // reconcile()을 this.reconcile()로 그냥 내부 호출하면 Spring AOP self-invocation
+    // 문제로 reconcile()의 @Transactional이 프록시를 안 타서 무시된다 - 그 상태로
+    // setRemainingStock()(@Modifying UPDATE)을 실행하면 매 주기마다
+    // InvalidDataAccessApiUsageException("No active transaction for update or delete
+    // query")이 터지고 전체가 롤백돼서 campaign.remaining_stock이 영원히 갱신 안 됐다.
+    // ShedLock과 마찬가지로 같은 프록시 체인에 @Transactional을 여기 같이 걸어두면
+    // reconcile() 내부 호출도 이미 스레드에 바인딩된 트랜잭션 안에서 실행된다.
+    @Transactional
     @Scheduled(fixedDelay = 15000)
     @SchedulerLock(name = "campaignStockSnapshotReconciliationJob", lockAtLeastFor = "PT10S", lockAtMostFor = "PT1M")
     public void scheduledReconcile() {
@@ -48,7 +57,9 @@ public class CampaignStockSnapshotReconciliationJob {
     }
 
     // 테스트에서는 ShedLock 프록시/락 컨텍스트 없이 이 로직만 바로 검증한다
-    // (CouponExpirationBatchJob의 run() 분리와 동일한 이유).
+    // (CouponExpirationBatchJob의 run() 분리와 동일한 이유). scheduledReconcile()의
+    // @Transactional과 별개로, 여기도 남겨둬야 테스트에서 reconcile()을 단독 호출할 때
+    // 트랜잭션이 걸린다.
     @Transactional
     public void reconcile() {
         List<Campaign> openCampaigns = campaignRepository.findByStatus(CampaignStatus.OPEN);
