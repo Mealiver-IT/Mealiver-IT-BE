@@ -29,6 +29,13 @@ import org.springframework.stereotype.Component;
 // existsByCampaignId()=true를 보고 나머지 9개 생성을 건너뛸 수 있었다(INSERT IGNORE는 "동시에
 // 같은 값을 중복 삽입"만 안전하게 막아줄 뿐, "생성이 끝나기도 전에 남이 끝났다고 오판"하는
 // 건 못 막는다). ensureShardsExist() 주석 참고.
+//
+// 이 인메모리 집합에는 근본적인 한계가 하나 더 있다: 서버 프로세스가 살아있는 동안은
+// 절대 스스로 안 지워진다. 부하테스트 리셋 SQL이 DELETE FROM campaign_stock_shard로 DB의
+// 샤드를 지워도 서버는 그 사실을 모르고 "이미 준비 끝났음"을 계속 믿는다 - 재시작 없이는
+// 리셋을 몇 번 해도 전 샤드 SOLD_OUT만 재현되는 문제가 실측됨(2026-08-21, 캠페인 300 13회차).
+// reserve()가 전 샤드 실패로 진짜 품절을 선언하기 직전에 자가치유하도록 대응했다 - 상세는
+// reserve() 주석 참고.
 @Component
 public class ShardedStockReservationStrategy implements StockReservationStrategy {
 
@@ -53,6 +60,24 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     @Override
     public boolean reserve(Long campaignId) {
         ensureShardsExist(campaignId);
+        if (tryDecreaseAcrossShards(campaignId)) {
+            return true;
+        }
+        // 2026-08-21 실측: 테스트 리셋 SQL이 DELETE FROM campaign_stock_shard로 샤드를 통째로
+        // 지워도, 서버는 initializedCampaignIds에 이 캠페인이 이미 있다고 믿고 DB를 다시 안
+        // 본다 - 재시작 전까지는 리셋을 몇 번 해도 계속 전 샤드 SOLD_OUT만 난다. 그래서 진짜
+        // 품절을 선언하기 직전에 딱 한 번, 샤드가 실제로(전혀) 없는 상태인지 확인해서 그렇다면
+        // 스스로 무효화하고 재생성한다 - 정상 경로(샤드 있음)에는 이 확인이 아예 안 실행되므로
+        // 오버헤드가 없다.
+        if (!shardRepository.existsByCampaignId(campaignId)) {
+            initializedCampaignIds.remove(campaignId);
+            ensureShardsExist(campaignId);
+            return tryDecreaseAcrossShards(campaignId);
+        }
+        return false;
+    }
+
+    private boolean tryDecreaseAcrossShards(Long campaignId) {
         int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
         for (int i = 0; i < SHARD_COUNT; i++) {
             int shardIndex = (start + i) % SHARD_COUNT;

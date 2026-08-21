@@ -149,6 +149,25 @@ class ShardedStockReservationStrategyTest {
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
     }
 
+    @Test
+    void 서버_재시작_없이_리셋SQL로_샤드가_통째로_삭제돼도_다음_reserve에서_자가치유한다() {
+        Long campaignId = createCampaign(20);
+        strategy.reserve(campaignId); // 지연 생성 트리거 - initializedCampaignIds에 캐시됨
+
+        // 테스트 리셋 SQL(DELETE FROM campaign_stock_shard)을 흉내낸다. campaign.remainingStock은
+        // 리셋 스크립트가 total_stock으로 복원해뒀다고 가정 - 여기서는 원래 갱신되지 않은 19
+        // 그대로 두고, "서버는 아직 initializedCampaignIds를 갖고 있는데 DB엔 샤드가 하나도
+        // 없는" 상황만 재현한다.
+        shardRepository.deleteAll();
+        assertThat(shardRepository.existsByCampaignId(campaignId)).isFalse();
+
+        // 캐시를 전혀 안 건드렸는데도(=서버 재시작 없이도) 다음 reserve()가 스스로 복구해야 한다.
+        boolean reserved = strategy.reserve(campaignId);
+
+        assertThat(reserved).isTrue();
+        assertThat(shardRepository.existsByCampaignId(campaignId)).isTrue();
+    }
+
     private Long createCampaign(int stock) {
         Campaign campaign = new Campaign("샤딩 테스트 캠페인", stock, null);
         campaign.open(LocalDateTime.now(), null);
