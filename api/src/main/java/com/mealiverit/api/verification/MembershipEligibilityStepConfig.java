@@ -81,17 +81,13 @@ public class MembershipEligibilityStepConfig {
             ItemProcessor<TierViolationRow, VerificationViolation> membershipEligibilityProcessor,
             JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
     ) {
-        return new StepBuilder(
+        return VerificationStepFactory.chunkStep(
                 "membershipEligibilityStep",
-                jobRepository
-        )
-                .<TierViolationRow, VerificationViolation>chunk(
-                        PAGE_SIZE,
-                        transactionManager
-                )
-                .reader(membershipEligibilityReader)
-                .processor(membershipEligibilityProcessor)
-                .writer(verificationResultWriter)
-                .build();
+                jobRepository,
+                transactionManager,
+                membershipEligibilityReader,
+                membershipEligibilityProcessor,
+                verificationResultWriter
+        );
     }
 }

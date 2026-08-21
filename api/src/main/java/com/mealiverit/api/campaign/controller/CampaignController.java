@@ -1,22 +1,13 @@
 package com.mealiverit.api.campaign.controller;
 
-import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
-import com.mealiverit.api.campaign.dto.CampaignResponse;
-import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
-import com.mealiverit.api.campaign.dto.CampaignStockResponse;
+import com.mealiverit.api.campaign.dto.*;
 import com.mealiverit.api.campaign.service.CampaignAdminService;
+import com.mealiverit.api.campaign.service.CampaignQueueService;
 import com.mealiverit.api.common.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 // 관리자용 캠페인/쿠폰 CRUD API(간단히, 화면 없음). 일정과역할.txt Phase 1.
 @RestController
@@ -24,9 +15,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class CampaignController {
 
     private final CampaignAdminService campaignAdminService;
+    private final CampaignQueueService campaignQueueService;
 
-    public CampaignController(CampaignAdminService campaignAdminService) {
+    public CampaignController(CampaignAdminService campaignAdminService, CampaignQueueService campaignQueueService) {
         this.campaignAdminService = campaignAdminService;
+        this.campaignQueueService = campaignQueueService;
     }
 
     @PostMapping
@@ -44,6 +37,14 @@ public class CampaignController {
     @GetMapping("/{campaignId}/stock")
     public ApiResponse<CampaignStockResponse> getStock(@PathVariable Long campaignId) {
         return ApiResponse.success(campaignAdminService.getStock(campaignId));
+    }
+
+    // 선착순 대기열 상태 조회 - 조회 자체가 대기열 진입도 겸함 (최초 호출 시 등록, 이후엔 조회만)
+    // 발급 API를 게이팅하지 않는 안내용 조회, X-User-Id 필요
+    @GetMapping("/{campaignId}/queue")
+    public ApiResponse<CampaignQueueResponse> getQueueStatus(@PathVariable Long campaignId,
+                                                             @RequestHeader("X-User-Id") Long userId) {
+        return ApiResponse.success(campaignQueueService.getQueueStatus(campaignId, userId));
     }
 
     @GetMapping

@@ -4,8 +4,9 @@
 -- (coupon_state_log를 쓰는 곳은 markUsed/markCanceled/markReturnedToIssued/만료배치뿐이고
 -- 전부 실제 from_status를 넘기지 NULL을 넘기지 않는다).
 -- USED|ISSUED: 주문취소 시 본인 재사용 복귀 (2026-08-13 팀 결정, FR-CPS-002/004, 05_시스템설계.txt (c) 참고)
+
+-- ORDER BY id;
 SELECT * FROM coupon_state_log
 WHERE CONCAT(COALESCE(from_status, '\0'), '|', to_status) NOT IN (
     'ISSUED|USED', 'ISSUED|CANCELED', 'ISSUED|EXPIRED', 'USED|CANCELED', 'USED|ISSUED'
-)
--- ORDER BY id;
+);
