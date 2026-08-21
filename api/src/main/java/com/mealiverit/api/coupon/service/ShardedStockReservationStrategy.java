@@ -24,8 +24,11 @@ import org.springframework.stereotype.Component;
 // (ensureShardsExist) - campaign.remaining_stock을 기준으로 나누므로, 이 마이그레이션 이전에
 // 이미 존재하던 캠페인(부분 발급된 것 포함)도 별도 백필 없이 정확한 값으로 자동 채워진다.
 // 인스턴스별 인메모리 집합으로 "이미 확인한 캠페인"을 기억해 이후 요청마다 존재여부 조회가
-// 반복되지 않게 한다 - 여러 인스턴스/스레드가 동시에 초기화를 시도해도 DB의 INSERT IGNORE +
-// UNIQUE(campaign_id, shard_index) 제약이 최종 안전망이라 중복 생성 걱정은 없다.
+// 반복되지 않게 한다. 생성 구간 자체는 캠페인별 락으로 원자화한다 - 2026-08-21 부하테스트(캠페인
+// 300, 10~11회차) 실측으로 발견된 문제 참고: 락 없이는 샤드 1개만 커밋된 순간 다른 스레드가
+// existsByCampaignId()=true를 보고 나머지 9개 생성을 건너뛸 수 있었다(INSERT IGNORE는 "동시에
+// 같은 값을 중복 삽입"만 안전하게 막아줄 뿐, "생성이 끝나기도 전에 남이 끝났다고 오판"하는
+// 건 못 막는다). ensureShardsExist() 주석 참고.
 @Component
 public class ShardedStockReservationStrategy implements StockReservationStrategy {
 
@@ -35,6 +38,11 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     private final CampaignStockShardRepository shardRepository;
     private final CampaignRepository campaignRepository;
     private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
+    // 캠페인별 생성-구간 락. 전역 락이 아니라 캠페인별로 나눈 이유: reserve()/rollback()마다
+    // 항상 거치는 ensureShardsExist()의 빠른 경로(initializedCampaignIds에 이미 있음)는 락을
+    // 아예 안 타므로, 이 맵은 "아직 초기화 안 된 캠페인"에서만, 그것도 초기화가 끝날 때까지의
+    // 짧은 구간에만 쓰인다.
+    private final ConcurrentHashMap<Long, Object> shardInitLocks = new ConcurrentHashMap<>();
 
     public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
                                             CampaignRepository campaignRepository) {
@@ -71,17 +79,30 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         log.warn("재고 원복 실패 - 모든 샤드가 capacity에 도달함 (campaignId={})", campaignId);
     }
 
+    // 2026-08-21 실측 버그 수정: 락 없이 "existsByCampaignId()=false면 생성" 만으로는, 샤드
+    // 1개만 먼저 커밋된 순간 다른 스레드가 "이미 있음"으로 오판해 나머지 9개 생성을 건너뛸 수
+    // 있었다(20,000 동시요청처럼 극단적 동시성에서 실제 재현됨) - 그 캠페인은 이후 영구히
+    // 샤드 1~2개분 재고로 쪼그라들어 멀쩡한 재고인데도 SOLD_OUT이 쏟아진다.
+    // 캠페인별 락으로 "확인 + 생성"을 원자화한다 - double-checked locking: 락 밖에서 먼저
+    // 빠르게 확인해 이미 끝난 경우 락 자체를 안 타게 하고(정상 트래픽 대부분이 여기서 끝남),
+    // 락 안에서 한 번 더 확인해 대기하던 다른 스레드들이 중복 생성하지 않게 한다.
     private void ensureShardsExist(Long campaignId) {
         if (initializedCampaignIds.contains(campaignId)) {
             return;
         }
-        if (!shardRepository.existsByCampaignId(campaignId)) {
-            Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
-            if (campaign != null) {
-                createShards(campaignId, campaign.getRemainingStock());
+        Object lock = shardInitLocks.computeIfAbsent(campaignId, id -> new Object());
+        synchronized (lock) {
+            if (initializedCampaignIds.contains(campaignId)) {
+                return;
             }
+            if (!shardRepository.existsByCampaignId(campaignId)) {
+                Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
+                if (campaign != null) {
+                    createShards(campaignId, campaign.getRemainingStock());
+                }
+            }
+            initializedCampaignIds.add(campaignId);
         }
-        initializedCampaignIds.add(campaignId);
     }
 
     private void createShards(Long campaignId, int totalToDistribute) {
