@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 // V6 — 재고 샤딩(2026-08-20). PessimisticLockStockReservationStrategy(원자 UPDATE, 락 보유시간
@@ -40,8 +41,8 @@ import org.springframework.stereotype.Component;
 public class ShardedStockReservationStrategy implements StockReservationStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(ShardedStockReservationStrategy.class);
-    private static final int SHARD_COUNT = 10;
 
+    private final int shardCount;
     private final CampaignStockShardRepository shardRepository;
     private final CampaignRepository campaignRepository;
     private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
@@ -51,10 +52,18 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 짧은 구간에만 쓰인다.
     private final ConcurrentHashMap<Long, Object> shardInitLocks = new ConcurrentHashMap<>();
 
+    // 2026-08-22 실측(Prometheus, coupon-duplicate-request-test.js): 샤드 10개로는 InnoDB row
+    // lock wait가 100초 동안 36,652건, 누적 대기시간 16,190,778ms(건당 평균 442ms) 발생 - 락을
+    // 오래 붙잡은 트랜잭션들이 HikariCP 커넥션(600개)을 그대로 물고 있어 풀이 완전히 고갈되고
+    // (active=600/600, pending 최대 400) 그 뒤로 요청이 커넥션조차 못 받아 줄을 섰다. 재컴파일
+    // 없이 이 값을 실험할 수 있게 상수 대신 설정값으로 뺐다 - 기본값은 이번 실측을 근거로 10에서
+    // 상향한 값이다.
     public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
-                                            CampaignRepository campaignRepository) {
+                                            CampaignRepository campaignRepository,
+                                            @Value("${app.stock-shard.count:50}") int shardCount) {
         this.shardRepository = shardRepository;
         this.campaignRepository = campaignRepository;
+        this.shardCount = shardCount;
     }
 
     @Override
@@ -78,9 +87,9 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     }
 
     private boolean tryDecreaseAcrossShards(Long campaignId) {
-        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
-        for (int i = 0; i < SHARD_COUNT; i++) {
-            int shardIndex = (start + i) % SHARD_COUNT;
+        int start = ThreadLocalRandom.current().nextInt(shardCount);
+        for (int i = 0; i < shardCount; i++) {
+            int shardIndex = (start + i) % shardCount;
             if (shardRepository.decreaseIfAvailable(campaignId, shardIndex) > 0) {
                 return true;
             }
@@ -91,9 +100,9 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     @Override
     public void rollback(Long campaignId) {
         ensureShardsExist(campaignId);
-        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
-        for (int i = 0; i < SHARD_COUNT; i++) {
-            int shardIndex = (start + i) % SHARD_COUNT;
+        int start = ThreadLocalRandom.current().nextInt(shardCount);
+        for (int i = 0; i < shardCount; i++) {
+            int shardIndex = (start + i) % shardCount;
             if (shardRepository.increaseIfBelowCapacity(campaignId, shardIndex) > 0) {
                 return;
             }
@@ -131,9 +140,9 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     }
 
     private void createShards(Long campaignId, int totalToDistribute) {
-        int base = totalToDistribute / SHARD_COUNT;
-        int remainder = totalToDistribute % SHARD_COUNT;
-        for (int shardIndex = 0; shardIndex < SHARD_COUNT; shardIndex++) {
+        int base = totalToDistribute / shardCount;
+        int remainder = totalToDistribute % shardCount;
+        for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
             int value = base + (shardIndex < remainder ? 1 : 0);
             shardRepository.insertIgnore(campaignId, shardIndex, value);
         }
