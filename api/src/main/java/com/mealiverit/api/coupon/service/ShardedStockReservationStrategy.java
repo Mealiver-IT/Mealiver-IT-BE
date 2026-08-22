@@ -3,12 +3,15 @@ package com.mealiverit.api.coupon.service;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 // V6 — 재고 샤딩(2026-08-20). PessimisticLockStockReservationStrategy(원자 UPDATE, 락 보유시간
@@ -42,9 +45,13 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
 
     private static final Logger log = LoggerFactory.getLogger(ShardedStockReservationStrategy.class);
 
+    private static final String INSERT_SHARD_SQL = "INSERT IGNORE INTO campaign_stock_shard "
+            + "(campaign_id, shard_index, remaining_stock, capacity) VALUES (?, ?, ?, ?)";
+
     private final int shardCount;
     private final CampaignStockShardRepository shardRepository;
     private final CampaignRepository campaignRepository;
+    private final JdbcTemplate jdbcTemplate;
     private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
     // 캠페인별 생성-구간 락. 전역 락이 아니라 캠페인별로 나눈 이유: reserve()/rollback()마다
     // 항상 거치는 ensureShardsExist()의 빠른 경로(initializedCampaignIds에 이미 있음)는 락을
@@ -60,9 +67,11 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 상향한 값이다.
     public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
                                             CampaignRepository campaignRepository,
+                                            JdbcTemplate jdbcTemplate,
                                             @Value("${app.stock-shard.count:50}") int shardCount) {
         this.shardRepository = shardRepository;
         this.campaignRepository = campaignRepository;
+        this.jdbcTemplate = jdbcTemplate;
         this.shardCount = shardCount;
     }
 
@@ -139,12 +148,22 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         }
     }
 
+    // 2026-08-22: shardRepository.insertIgnore()가 건마다 REQUIRES_NEW(=커넥션 새로 획득)라,
+    // 샤드 수만큼 순차 커넥션 왕복이 synchronized 블록 안에서 일어났다 - 새 캠페인에 대량 요청이
+    // 한꺼번에 몰리면 그 블록을 통과 못 한 나머지 스레드 전부가 Tomcat 워커를 붙잡은 채 대기하다가,
+    // 생성이 끝나는 순간 한꺼번에 풀려나 HikariCP 커넥션을 동시에 요구하는 thundering herd가 될
+    // 수 있다(round-05 실측에서 HikariCP active 600/600 + pending 400까지 관측된 바 있음 - 다만
+    // 그 자체가 이 synchronized 구간 때문이라는 직접 증거는 아니고, 구조적으로 있을 수 있는
+    // 위험이라 선제적으로 없앤 것). 커넥션 1번으로 전부 넣는 배치 INSERT로 바꿔 shardCount와
+    // 무관하게 항상 왕복 1회로 끝나게 한다.
     private void createShards(Long campaignId, int totalToDistribute) {
         int base = totalToDistribute / shardCount;
         int remainder = totalToDistribute % shardCount;
+        List<Object[]> batchArgs = new ArrayList<>(shardCount);
         for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
             int value = base + (shardIndex < remainder ? 1 : 0);
-            shardRepository.insertIgnore(campaignId, shardIndex, value);
+            batchArgs.add(new Object[] {campaignId, shardIndex, value, value});
         }
+        jdbcTemplate.batchUpdate(INSERT_SHARD_SQL, batchArgs);
     }
 }
