@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -47,6 +48,11 @@ class ShardedStockReservationStrategyTest {
     private CampaignRepository campaignRepository;
     @Autowired
     private CampaignStockShardRepository shardRepository;
+    // 2026-08-22 샤드 개수가 상수(10)에서 설정값으로 바뀌면서, "전 샤드를 한 번씩 순회"하는
+    // 테스트들이 실제 설정값을 알아야 한다 - 하드코딩된 10을 그대로 두면 shardCount가 10보다
+    // 커지는 순간 일부 샤드가 안 비워진 채로 남아 테스트 전제가 깨진다.
+    @Value("${app.stock-shard.count:50}")
+    private int shardCount;
 
     @Test
     void 첫_reserve_호출시_campaign_remainingStock_기준으로_샤드가_지연생성된다() {
@@ -67,9 +73,9 @@ class ShardedStockReservationStrategyTest {
         Long campaignId = createCampaign(10);
         strategy.reserve(campaignId); // 지연 생성 트리거 - 랜덤으로 고른 샤드 하나가 이미 소진됨
 
-        // 어느 샤드가 트리거로 이미 소진됐는지 모르므로, 0~9번을 전부 무조건 한 번씩 비운다
-        // (샤드당 capacity가 1이라 이미 0인 샤드는 그냥 무효과).
-        for (int i = 0; i < 10; i++) {
+        // 어느 샤드가 트리거로 이미 소진됐는지 모르므로, 전체 샤드를 무조건 한 번씩 비운다
+        // (capacity가 없는 샤드는 그냥 무효과).
+        for (int i = 0; i < shardCount; i++) {
             shardRepository.decreaseIfAvailable(campaignId, i);
         }
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
@@ -88,7 +94,7 @@ class ShardedStockReservationStrategyTest {
         Long campaignId = createCampaign(5);
         strategy.reserve(campaignId); // 지연 생성 트리거
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < shardCount; i++) {
             shardRepository.decreaseIfAvailable(campaignId, i); // 이미 0인 샤드는 그냥 무효과
         }
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
