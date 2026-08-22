@@ -11,7 +11,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 // V6 — 재고 샤딩(2026-08-20). PessimisticLockStockReservationStrategy(원자 UPDATE, 락 보유시간
@@ -45,13 +44,10 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
 
     private static final Logger log = LoggerFactory.getLogger(ShardedStockReservationStrategy.class);
 
-    private static final String INSERT_SHARD_SQL = "INSERT IGNORE INTO campaign_stock_shard "
-            + "(campaign_id, shard_index, remaining_stock, capacity) VALUES (?, ?, ?, ?)";
-
     private final int shardCount;
     private final CampaignStockShardRepository shardRepository;
     private final CampaignRepository campaignRepository;
-    private final JdbcTemplate jdbcTemplate;
+    private final CampaignStockShardBatchCreator batchCreator;
     private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
     // 캠페인별 생성-구간 락. 전역 락이 아니라 캠페인별로 나눈 이유: reserve()/rollback()마다
     // 항상 거치는 ensureShardsExist()의 빠른 경로(initializedCampaignIds에 이미 있음)는 락을
@@ -67,11 +63,11 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 상향한 값이다.
     public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
                                             CampaignRepository campaignRepository,
-                                            JdbcTemplate jdbcTemplate,
+                                            CampaignStockShardBatchCreator batchCreator,
                                             @Value("${app.stock-shard.count:50}") int shardCount) {
         this.shardRepository = shardRepository;
         this.campaignRepository = campaignRepository;
-        this.jdbcTemplate = jdbcTemplate;
+        this.batchCreator = batchCreator;
         this.shardCount = shardCount;
     }
 
@@ -148,14 +144,19 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         }
     }
 
-    // 2026-08-22: shardRepository.insertIgnore()가 건마다 REQUIRES_NEW(=커넥션 새로 획득)라,
-    // 샤드 수만큼 순차 커넥션 왕복이 synchronized 블록 안에서 일어났다 - 새 캠페인에 대량 요청이
-    // 한꺼번에 몰리면 그 블록을 통과 못 한 나머지 스레드 전부가 Tomcat 워커를 붙잡은 채 대기하다가,
-    // 생성이 끝나는 순간 한꺼번에 풀려나 HikariCP 커넥션을 동시에 요구하는 thundering herd가 될
-    // 수 있다(round-05 실측에서 HikariCP active 600/600 + pending 400까지 관측된 바 있음 - 다만
-    // 그 자체가 이 synchronized 구간 때문이라는 직접 증거는 아니고, 구조적으로 있을 수 있는
-    // 위험이라 선제적으로 없앤 것). 커넥션 1번으로 전부 넣는 배치 INSERT로 바꿔 shardCount와
-    // 무관하게 항상 왕복 1회로 끝나게 한다.
+    // 2026-08-22 1차 수정: shardRepository.insertIgnore()가 건마다 REQUIRES_NEW(=커넥션 새로
+    // 획득)라, 샤드 수만큼 순차 커넥션 왕복이 synchronized 블록 안에서 일어났다 - 커넥션 1번으로
+    // 전부 넣는 배치 INSERT로 바꿨다.
+    //
+    // 2026-08-22 2차 수정(round-10 실측, sys.innodb_lock_waits로 확인): 그 배치 INSERT를 여기서
+    // JdbcTemplate으로 직접 실행했더니, 이 메서드를 호출한 reserve()가 실은 이미 바깥의
+    // @Transactional(reserveStock()) 안에서 실행 중이라, 배치 INSERT가 그 트랜잭션에 편승해버렸다
+    // - 새로 만든 샤드 50개 행의 락이 삽입 즉시가 아니라 reserveStock() 전체가 끝날 때까지 안
+    // 풀렸다. 새 캠페인 첫 요청에 대량 트래픽이 몰리면 이 한 트랜잭션이 조금만 늦어져도 뒤따르는
+    // 요청 전부가 InnoDB lock_wait_timeout까지 한꺼번에 밀렸다(트랜잭션 하나가 rows_modified=50인
+    // 채로 1분 넘게 안 풀리며 수십 개 세션을 block하는 게 실제로 재현됨). CampaignStockShardBatchCreator로
+    // 분리해 REQUIRES_NEW로 실행되게 했다 - 커넥션 왕복은 여전히 1회, 그 1회짜리 트랜잭션은
+    // 바깥과 무관하게 즉시 커밋되어 락도 즉시 풀린다.
     private void createShards(Long campaignId, int totalToDistribute) {
         int base = totalToDistribute / shardCount;
         int remainder = totalToDistribute % shardCount;
@@ -164,6 +165,6 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
             int value = base + (shardIndex < remainder ? 1 : 0);
             batchArgs.add(new Object[] {campaignId, shardIndex, value, value});
         }
-        jdbcTemplate.batchUpdate(INSERT_SHARD_SQL, batchArgs);
+        batchCreator.createAll(batchArgs);
     }
 }
