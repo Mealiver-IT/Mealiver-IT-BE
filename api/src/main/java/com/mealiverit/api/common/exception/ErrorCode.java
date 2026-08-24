@@ -22,6 +22,7 @@ public enum ErrorCode {
     CAMPAIGN_NOT_FOUND(HttpStatus.NOT_FOUND, "캠페인을 찾을 수 없습니다."),
     CAMPAIGN_INVALID_STATE_TRANSITION(HttpStatus.CONFLICT, "허용되지 않은 캠페인 상태 전이입니다."),
     CAMPAIGN_STATE_CONFLICT(HttpStatus.CONFLICT, "다른 요청이 먼저 캠페인 상태를 변경했습니다. 다시 시도해주세요."),
+    CAMPAIGN_HAS_ISSUED_COUPONS(HttpStatus.CONFLICT, "이미 발급된 쿠폰이 있어 캠페인을 삭제할 수 없습니다."),
 
     // 주문 관련
     ORDER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 주문입니다."),

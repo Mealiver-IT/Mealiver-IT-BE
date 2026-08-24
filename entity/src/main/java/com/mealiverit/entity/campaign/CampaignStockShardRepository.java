@@ -11,6 +11,9 @@ public interface CampaignStockShardRepository extends JpaRepository<CampaignStoc
 
     boolean existsByCampaignId(Long campaignId);
 
+    // 캠페인 삭제 시 FK 제약때문에 campaign row보다 먼저 지워야 함
+    void deleteByCampaignId(Long campaignId);
+
     // 스냅샷 리스너/재동기화 잡이 Redis·campaign.remaining_stock에 복사해둘 "진짜" 값을 구할 때 사용.
     // 샤드가 아직 없는 캠페인(지연 생성 전)이면 0이 아니라 null이 나올 수 있어 COALESCE로 방어.
     @Query("SELECT COALESCE(SUM(s.remainingStock), 0) FROM CampaignStockShard s WHERE s.campaignId = :campaignId")
