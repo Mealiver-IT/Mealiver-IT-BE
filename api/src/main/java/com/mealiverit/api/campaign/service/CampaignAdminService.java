@@ -2,6 +2,7 @@ package com.mealiverit.api.campaign.service;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.dto.*;
+import com.mealiverit.api.campaign.event.CampaignStatusChangedEvent;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
@@ -14,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,13 +28,16 @@ public class CampaignAdminService {
     private final CouponRepository couponRepository;
     private final CampaignStockCache campaignStockCache;
     private final CouponIssueRepository couponIssueRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository,
-                                 CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository) {
+                                CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository,
+                                ApplicationEventPublisher eventPublisher) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.campaignStockCache = campaignStockCache;
         this.couponIssueRepository = couponIssueRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -89,6 +95,10 @@ public class CampaignAdminService {
             case CLOSED -> campaign.close();
             case READY -> throw new BusinessException(ErrorCode.CAMPAIGN_INVALID_STATE_TRANSITION);
         }
+
+        // 커밋 성공 시에만 SSE 구독자에게 알려야 하므로 이벤트 발생만 하고, 실제 전송은 CampaignStatusChangeListener(AFTER_COMMIT)에 맡김
+        // 낙관적 락 충돌로 이 트랜잭션이 롤백되면 이 이벤트도 자동으로 폐기됨
+        eventPublisher.publishEvent(new CampaignStatusChangedEvent(campaignId, campaign.getStatus()));
         Coupon coupon = couponRepository.findByCampaignId(campaignId).orElse(null);
         return CampaignResponse.of(campaign, coupon);
     }
