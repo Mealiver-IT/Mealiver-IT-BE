@@ -56,7 +56,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 | 역할 | 이름 | 담당 도메인 |
 |---|---|---|
-| 인프라·발급 API (발급 로직) | 김⁠어⁠진 | `CouponIssuanceService`, 재고 예약 전략(비관적 락 → Redis 스냅샷 캐시 → 재고 샤딩) |
+| 인프라·발급 API (발급 로직) | 김⁠어⁠진 | `CouponIssuanceService`, 재고 예약 전략 |
 | 발급 API (상태전이 로직) | 이⁠진⁠희 | 상태전이 API, 상태 머신, idempotency |
 | 데이터·검증배치 (더미데이터) | 윤⁠태⁠형 | 더미데이터 시더(유저/오더/등급/캠페인/발급이력) |
 | 데이터·검증배치 (검증 SQL+PII) | 정⁠민⁠주 | 정합성 검증 배치(`ConsistencyVerificationJob`), PII 마스킹 컨버터/시리얼라이저 |
@@ -73,7 +73,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 |---|---|
 | 언어 / 프레임워크 | ![Java](https://img.shields.io/badge/Java-21-007396?style=for-the-badge&logo=openjdk&logoColor=white) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=for-the-badge&logo=springboot&logoColor=white) ![Maven](https://img.shields.io/badge/Maven-C71A36?style=for-the-badge&logo=apachemaven&logoColor=white) |
 | ORM | ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-59666C?style=for-the-badge&logo=hibernate&logoColor=white) |
-| 배치 | Spring `@Scheduled` + ShedLock(분산락) — 등급 재산정(`MembershipTierBatchJob`), 쿠폰 만료(`CouponExpirationBatchJob`), 정합성 검증 자동화(`ConsistencyVerificationJob`, Spring Batch) |
+| 배치 | Spring `@Scheduled` — 등급 재산정(`MembershipTierBatchJob`, 매월 1일), 쿠폰 만료(`CouponExpirationBatchJob`, 매일 새벽 3시, ShedLock 분산락 적용). 정합성 검증(Spring Batch `Job` + `@Scheduled` 트리거, `app.consistency-verification.enabled=true`일 때만 활성 — 기본 비활성) |
 | 재시도 / 이벤트 | ![Spring Retry](https://img.shields.io/badge/Spring%20Retry-6DB33F?style=for-the-badge&logo=spring&logoColor=white) 상태전이 동시성 재시도, `@TransactionalEventListener(AFTER_COMMIT)` + `@Async` 기반 알림 분리 |
 | 분산 캐시 / 락 | ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white) — DB 선반영+스냅샷 캐시 기반 사전필터로 사용. 재고 판단의 원본은 MySQL `campaign_stock_shard` 샤딩이고, Redis는 그 결과를 사후 복사하는 사전필터 캐시 역할 |
 
@@ -88,9 +88,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 | 분류 | 기술 |
 |---|---|
-| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) — `Mealiver-IT-Infra` 레포 docker-compose로 MySQL/Redis/Kafka(+UI)/Prometheus/Grafana/Adminer/API/FE 전체 스택 구성 |
-| 원격 DB | Tailscale로 연결되는 팀 공유 MySQL |
-| CI | GitHub Actions — `main` 브랜치 push 시 Docker 이미지 빌드 후 GHCR에 푸시 |
+| 컨테이너 | ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white) — `Mealiver-IT-Infra` 레포 docker-compose로 MySQL/Redis/Prometheus/Grafana/Adminer/API/FE 전체 스택 구성 |
 
 ---
 
@@ -108,7 +106,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
    └─ Docker MySQL 컨테이너
 팀 공유 개발 (remote 프로필)
    └─ Tailscale로 연결되는 학원 공용 서버
-      └─ Mealiver-IT-Infra의 docker-compose로 MySQL, Redis, Kafka(+UI),
+      └─ Mealiver-IT-Infra의 docker-compose로 MySQL, Redis,
          Prometheus, Grafana, Adminer, API, FE를 한 번에 기동
 ```
 
@@ -131,7 +129,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 | `orders` | 계급 산정용 결제완료 이력. 실제 주문 UI는 프론트 정적 mockup, 이 테이블은 등급 배치가 집계하는 근거 데이터 | `status`, `completed_at` / `idx_orders_tier_calc(user_id, status, completed_at)` — 등급 배치가 완료 주문 수를 집계할 때 사용 |
 | `membership_tier_log` | 등급 재산정 배치(`MembershipTierBatchJob`) 감사 로그. 등급이 실제로 바뀐 유저만 기록 | `from_tier`, `to_tier`, `order_count` |
 | `campaign` | 선착순 발급 이벤트(캠페인) 마스터. 재고·오픈 기간·회원 등급 제한을 가짐 | `total_stock`/`remaining_stock`(V4(재고 샤딩) 도입 이후 이 컬럼은 더 이상 재고 판단의 원본이 아님 — 진짜 재고는 `campaign_stock_shard` 합계이고, `remaining_stock`은 관리자 CRUD·검증쿼리(b) 등 기존 코드가 계속 읽을 수 있도록 스냅샷 리스너/재동기화 잡이 그 합계를 사후 복사해두는 표시값), `min_membership_tier`(nullable, 회원 전용 쿠폰 자격요건), `version`(낙관적 락) |
-| `campaign_stock_shard` | 캠페인 재고를 N개(기본 10) row로 쪼갠 실제 재고 저장 단위. InnoDB가 서로 다른 샤드를 독립적으로 잠글 수 있게 해 hot row 경합을 분산 | `campaign_id`+`shard_index`(UNIQUE), `remaining_stock`, `capacity`(샤드 생성 시점 값으로 고정, `sum(capacity)=total_stock` 불변식) |
+| `campaign_stock_shard` | 캠페인 재고를 N개(기본 50, `app.stock-shard.count`로 설정 가능) row로 쪼갠 실제 재고 저장 단위. InnoDB가 서로 다른 샤드를 독립적으로 잠글 수 있게 해 hot row 경합을 분산 | `campaign_id`+`shard_index`(UNIQUE), `remaining_stock`, `capacity`(샤드 생성 시점 값으로 고정, `sum(capacity)=total_stock` 불변식) |
 | `coupon` | 캠페인이 발급하는 쿠폰의 할인 정책. 캠페인과 1:1 | `discount_type`/`discount_value`, `valid_hours`(발급 시점 기준 유효기간) / FK `campaign_id` |
 | `coupon_issue` | 실제 발급 이력. 상태 관리의 핵심 테이블(300만 건 규모 대상) | `status`(ISSUED/USED/CANCELED/EXPIRED), `issued_membership_tier`(발급 시점 등급 스냅샷), `idempotency_key` / `uk_campaign_user`(1인 1매 최종 방어선), `uk_idempotency_key`, `idx_ci_status_valid_until`(만료 배치 스캔용) |
 | `coupon_state_log` | 상태전이 감사 로그. 정합성 검증 배치가 "이력 vs 현재 상태"를 대조하는 근거 | `from_status`/`to_status`, `request_id` / `uk_state_log_request`(상태전이 요청 멱등성 최종 방어선), `idx_state_log_coupon_issue(coupon_issue_id, id)` |
@@ -161,8 +159,10 @@ flowchart LR
 
 **버전별 구현**
 - **V2** (`PessimisticLockStockReservationStrategy`): 재고 row를 잠그고 확인·차감. "조건 확인 + 차감"을 원자 UPDATE 하나로 묶어 락 보유 구간을 최소화.
-- **V3**: 최종 판단은 항상 그 시점의 활성 전략(V2/V4)이 하고, Redis는 그 결과를 `AFTER_COMMIT` 시점에 사후 복사해두는 캐시입니다. "확실히 품절"이면 즉시 거절, 그 외(캐시 미스·Redis 장애 포함)는 DB로 통과. `CampaignStockSnapshotReconciliationJob`이 15초 주기로 재동기화하고, Redis가 죽어도 정확성은 유지된 채 지연시간만 늘어납니다.
-- **V4** (`ShardedStockReservationStrategy`): 재고를 N개(기본 10) 샤드로 분산, 랜덤 시작 샤드 + 순차 폴백으로 배정합니다. 샤드는 이 전략이 캠페인을 처음 다룰 때 지연 생성되어 기존 캠페인도 자동으로 채워집니다. 샤드 순회는 `REQUIRES_NEW`로 독립 트랜잭션이라 락 보유시간이 짧고 데드락도 없으며, 각 샤드 `capacity` 합이 항상 `total_stock`과 같아 `rollback()`도 아무 샤드에나 복원하면 됩니다. V3의 Redis 사전필터는 스냅샷 소스만 샤드 합계로 바뀐 채 그대로 얹힙니다.
+- **V3**: 최종 판단은 항상 그 시점의 활성 전략(V2/V4)이 하고, Redis는 그 결과를 `AFTER_COMMIT` 시점에 사후 복사해두는 사전 필터 캐시입니다. 캐시가 "확실히 품절"이라고 답하면 DB 근처도 가지 않고 즉시 거절하지만, 캐시 미스나 Redis 장애 시에는 항상 `null`을 반환해 이 사전 필터가 자동으로 무력화되고 모든 요청이 그대로 DB 판단으로 넘어갑니다 — Redis가 죽어도 재고 정확성은 DB가 그대로 보장하고, 잃는 건 "품절 요청을 DB 앞에서 미리 걸러주던 지름길"뿐이라 지연시간만 늘어납니다. `CampaignStockSnapshotReconciliationJob`이 15초 주기로 DB→Redis 스냅샷을 재동기화합니다.
+- **V4** (`ShardedStockReservationStrategy`): 재고를 N개(기본 50, `app.stock-shard.count`로 설정 가능 — 최초 10에서 부하테스트 실측 후 상향) 샤드로 분산, 랜덤 시작 샤드 + 순차 폴백으로 배정합니다. 샤드는 이 전략이 캠페인을 처음 다룰 때 지연 생성되어 기존 캠페인도 자동으로 채워집니다. 샤드 순회는 `REQUIRES_NEW`로 독립 트랜잭션이라 락 보유시간이 짧고 데드락도 없으며, 각 샤드 `capacity` 합이 항상 `total_stock`과 같아 `rollback()`도 아무 샤드에나 복원하면 됩니다. V3의 Redis 사전필터는 스냅샷 소스만 샤드 합계로 바뀐 채 그대로 얹힙니다.
+
+**중복요청 억제** (`CouponIssuanceDuplicateGuard`): 재고 확보(V1~V4)와는 별개 축으로, 같은 유저가 짧은 시간에 같은 캠페인에 여러 번 요청하는 경우(네트워크 재시도, 중복 클릭 등 — Idempotency-Key가 요청마다 달라 위 idempotency 체크로는 못 거름)를 DB 앞에서 미리 차단하는 Redis 기반 사전 필터입니다. 이 가드가 없으면 유저 1명의 동시 요청 N개가 전부 DB까지 가서 재고 락을 잡고, 그중 1개만 `uk_campaign_user` 제약으로 성공하고 나머지 N-1개는 INSERT 실패 후 재고를 롤백하는 식으로 DB 락 소모가 크게 증폭됩니다(실측: 중복 요청의 44.6%가 가드 없이 DB까지 샘). 해제 시점을 세 가지 방식으로 실측 비교했습니다 — ① TTL(10초) 단독: 처리 지연 시 TTL이 먼저 만료돼 보호가 풀림 ② 처리 종료 즉시 `release()`: 빨리 끝나는 요청의 보호 구간이 너무 짧아져 오히려 악화(5,816→9,139건) ③ 최소 보유시간(MIN_HOLD 10초) + `release()` 결합: 빠른 요청은 최소 10초, 느린 요청은 실제 종료 시점까지 보호 — 최종 채택. 이 가드가 막지 못해도 `uk_campaign_user` 제약과 보상 롤백이 최종 방어선이라, 순수하게 불필요한 DB 락 경합을 줄이는 성능 최적화입니다.
 
 `StockReservationStrategy` 인터페이스로 재고 확보 로직(`reserve`/`rollback`)만 버전별로 분리하고, 멱등성·eligibility 체크·트랜잭션 경계·로깅 등 나머지는 전 버전 동일하게 유지해 버전 간 비교가 공정하도록 설계했습니다. 자세한 비교·근거는 [`03_버전사다리_실험설계.txt`](docs/planning/03_버전사다리_실험설계.txt), 설계 배경은 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
