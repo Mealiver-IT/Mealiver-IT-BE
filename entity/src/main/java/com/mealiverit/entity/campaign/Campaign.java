@@ -55,16 +55,28 @@ public class Campaign {
     }
 
     public Campaign(String name, int totalStock, MembershipTier minMembershipTier) {
-        this(name, totalStock, minMembershipTier, CampaignType.FCFS);
+        this(name, totalStock, minMembershipTier, CampaignType.FCFS, null);
     }
 
     public Campaign(String name, int totalStock, MembershipTier minMembershipTier, CampaignType campaignType) {
+        this(name, totalStock, minMembershipTier, campaignType, null);
+    }
+
+    // 오픈시간 예약 - 생성 시점에 scheduledOpenAt을 넘기면 READY 상태를 유지한 채 기존 openAt 컬럼에 미리 저장해둔다(openAt() 호출 전이라 status는 그대로 READY)
+    // 새 컬럼 없이 openAt을 "예정 시각"으로 먼저 쓰고, 나중에 open()이 호출되면 같은 컬럼에 실제 오픈된 시각으로 덮어써짐
+    // CampaignScheduledOpenBatchJob이 이 값을 보고 자동으로 open()을 호출한다.
+    public Campaign(String name, int totalStock, MembershipTier minMembershipTier, LocalDateTime scheduledOpenAt) {
+        this(name, totalStock, minMembershipTier, CampaignType.FCFS, scheduledOpenAt);
+    }
+
+    public Campaign(String name, int totalStock, MembershipTier minMembershipTier, CampaignType campaignType, LocalDateTime scheduledOpenAt) {
         this.name = name;
         this.totalStock = totalStock;
         this.remainingStock = totalStock;
         this.status = CampaignStatus.READY;
         this.minMembershipTier = minMembershipTier;
         this.campaignType = campaignType;
+        this.openAt = scheduledOpenAt;
     }
 
     public void open(LocalDateTime openAt, LocalDateTime closeAt) {

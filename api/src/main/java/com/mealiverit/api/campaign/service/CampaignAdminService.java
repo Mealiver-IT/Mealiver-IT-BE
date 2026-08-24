@@ -43,7 +43,7 @@ public class CampaignAdminService {
     @Transactional
     public CampaignResponse create(CampaignCreateRequest request) {
         Campaign campaign = campaignRepository.save(
-                new Campaign(request.name(), request.totalStock(), request.minMembershipTier()));
+                new Campaign(request.name(), request.totalStock(), request.minMembershipTier(), request.scheduledOpenAt()));
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), request.discountType(),
                 request.discountValue(), request.minOrderAmount(), request.maxDiscountAmount(),
                 request.validHours()));
