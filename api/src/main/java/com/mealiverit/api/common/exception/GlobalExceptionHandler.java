@@ -3,6 +3,7 @@ package com.mealiverit.api.common.exception;
 import com.mealiverit.api.common.response.ErrorResponse;
 import com.mealiverit.entity.campaign.InvalidCampaignStateTransitionException;
 import com.mealiverit.entity.coupon.InvalidStateTransitionException;
+import com.mealiverit.entity.order.InvalidOrderStateTransitionException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -33,6 +34,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleInvalidCampaignStateTransition(
             InvalidCampaignStateTransitionException e) {
         ErrorCode errorCode = ErrorCode.CAMPAIGN_INVALID_STATE_TRANSITION;
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ErrorResponse.of(errorCode));
+    }
+
+    // entity 모듈은 api를 모르므로 도메인 예외를 직접 던진다. 여기서 HTTP 응답으로 번역한다.
+    @ExceptionHandler(InvalidOrderStateTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidOrderStateTransition(InvalidOrderStateTransitionException e) {
+        ErrorCode errorCode = ErrorCode.ORDER_INVALID_STATE_TRANSITION;
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode));
     }

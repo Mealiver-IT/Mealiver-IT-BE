@@ -34,13 +34,6 @@ public interface CampaignStockShardRepository extends JpaRepository<CampaignStoc
             + "WHERE s.campaignId = :campaignId AND s.shardIndex = :shardIndex AND s.remainingStock < s.capacity")
     int increaseIfBelowCapacity(@Param("campaignId") Long campaignId, @Param("shardIndex") int shardIndex);
 
-    // 지연 생성 시 여러 요청이 동시에 초기화를 시도해도 안전하도록 INSERT IGNORE 사용 -
-    // (campaign_id, shard_index) UNIQUE 제약에 걸리는 중복 행은 예외 없이 조용히 무시된다.
-    @Modifying
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Query(value = "INSERT IGNORE INTO campaign_stock_shard "
-            + "(campaign_id, shard_index, remaining_stock, capacity) VALUES (:campaignId, :shardIndex, :value, :value)",
-            nativeQuery = true)
-    void insertIgnore(@Param("campaignId") Long campaignId, @Param("shardIndex") int shardIndex,
-                       @Param("value") int value);
+    // 샤드 지연 생성(배치 INSERT)은 ShardedStockReservationStrategy가 JdbcTemplate으로 직접
+    // 처리한다 - 커넥션 왕복을 샤드 수만큼이 아니라 1회로 묶기 위해 이 리포지토리를 안 거친다.
 }

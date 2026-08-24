@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -47,6 +48,11 @@ class ShardedStockReservationStrategyTest {
     private CampaignRepository campaignRepository;
     @Autowired
     private CampaignStockShardRepository shardRepository;
+    // 2026-08-22 샤드 개수가 상수(10)에서 설정값으로 바뀌면서, "전 샤드를 한 번씩 순회"하는
+    // 테스트들이 실제 설정값을 알아야 한다 - 하드코딩된 10을 그대로 두면 shardCount가 10보다
+    // 커지는 순간 일부 샤드가 안 비워진 채로 남아 테스트 전제가 깨진다.
+    @Value("${app.stock-shard.count:50}")
+    private int shardCount;
 
     @Test
     void 첫_reserve_호출시_campaign_remainingStock_기준으로_샤드가_지연생성된다() {
@@ -67,9 +73,9 @@ class ShardedStockReservationStrategyTest {
         Long campaignId = createCampaign(10);
         strategy.reserve(campaignId); // 지연 생성 트리거 - 랜덤으로 고른 샤드 하나가 이미 소진됨
 
-        // 어느 샤드가 트리거로 이미 소진됐는지 모르므로, 0~9번을 전부 무조건 한 번씩 비운다
-        // (샤드당 capacity가 1이라 이미 0인 샤드는 그냥 무효과).
-        for (int i = 0; i < 10; i++) {
+        // 어느 샤드가 트리거로 이미 소진됐는지 모르므로, 전체 샤드를 무조건 한 번씩 비운다
+        // (capacity가 없는 샤드는 그냥 무효과).
+        for (int i = 0; i < shardCount; i++) {
             shardRepository.decreaseIfAvailable(campaignId, i);
         }
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
@@ -88,7 +94,7 @@ class ShardedStockReservationStrategyTest {
         Long campaignId = createCampaign(5);
         strategy.reserve(campaignId); // 지연 생성 트리거
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < shardCount; i++) {
             shardRepository.decreaseIfAvailable(campaignId, i); // 이미 0인 샤드는 그냥 무효과
         }
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
@@ -147,6 +153,25 @@ class ShardedStockReservationStrategyTest {
         assertThat(finishedInTime).isTrue();
         assertThat(successCount.get()).isEqualTo(stock);
         assertThat(shardRepository.sumRemainingStock(campaignId)).isZero();
+    }
+
+    @Test
+    void 서버_재시작_없이_리셋SQL로_샤드가_통째로_삭제돼도_다음_reserve에서_자가치유한다() {
+        Long campaignId = createCampaign(20);
+        strategy.reserve(campaignId); // 지연 생성 트리거 - initializedCampaignIds에 캐시됨
+
+        // 테스트 리셋 SQL(DELETE FROM campaign_stock_shard)을 흉내낸다. campaign.remainingStock은
+        // 리셋 스크립트가 total_stock으로 복원해뒀다고 가정 - 여기서는 원래 갱신되지 않은 19
+        // 그대로 두고, "서버는 아직 initializedCampaignIds를 갖고 있는데 DB엔 샤드가 하나도
+        // 없는" 상황만 재현한다.
+        shardRepository.deleteAll();
+        assertThat(shardRepository.existsByCampaignId(campaignId)).isFalse();
+
+        // 캐시를 전혀 안 건드렸는데도(=서버 재시작 없이도) 다음 reserve()가 스스로 복구해야 한다.
+        boolean reserved = strategy.reserve(campaignId);
+
+        assertThat(reserved).isTrue();
+        assertThat(shardRepository.existsByCampaignId(campaignId)).isTrue();
     }
 
     private Long createCampaign(int stock) {

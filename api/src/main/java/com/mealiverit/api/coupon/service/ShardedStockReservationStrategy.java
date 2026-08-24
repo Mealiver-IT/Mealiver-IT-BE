@@ -3,11 +3,14 @@ package com.mealiverit.api.coupon.service;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 // V6 — 재고 샤딩(2026-08-20). PessimisticLockStockReservationStrategy(원자 UPDATE, 락 보유시간
@@ -24,30 +27,74 @@ import org.springframework.stereotype.Component;
 // (ensureShardsExist) - campaign.remaining_stock을 기준으로 나누므로, 이 마이그레이션 이전에
 // 이미 존재하던 캠페인(부분 발급된 것 포함)도 별도 백필 없이 정확한 값으로 자동 채워진다.
 // 인스턴스별 인메모리 집합으로 "이미 확인한 캠페인"을 기억해 이후 요청마다 존재여부 조회가
-// 반복되지 않게 한다 - 여러 인스턴스/스레드가 동시에 초기화를 시도해도 DB의 INSERT IGNORE +
-// UNIQUE(campaign_id, shard_index) 제약이 최종 안전망이라 중복 생성 걱정은 없다.
+// 반복되지 않게 한다. 생성 구간 자체는 캠페인별 락으로 원자화한다 - 2026-08-21 부하테스트(캠페인
+// 300, 10~11회차) 실측으로 발견된 문제 참고: 락 없이는 샤드 1개만 커밋된 순간 다른 스레드가
+// existsByCampaignId()=true를 보고 나머지 9개 생성을 건너뛸 수 있었다(INSERT IGNORE는 "동시에
+// 같은 값을 중복 삽입"만 안전하게 막아줄 뿐, "생성이 끝나기도 전에 남이 끝났다고 오판"하는
+// 건 못 막는다). ensureShardsExist() 주석 참고.
+//
+// 이 인메모리 집합에는 근본적인 한계가 하나 더 있다: 서버 프로세스가 살아있는 동안은
+// 절대 스스로 안 지워진다. 부하테스트 리셋 SQL이 DELETE FROM campaign_stock_shard로 DB의
+// 샤드를 지워도 서버는 그 사실을 모르고 "이미 준비 끝났음"을 계속 믿는다 - 재시작 없이는
+// 리셋을 몇 번 해도 전 샤드 SOLD_OUT만 재현되는 문제가 실측됨(2026-08-21, 캠페인 300 13회차).
+// reserve()가 전 샤드 실패로 진짜 품절을 선언하기 직전에 자가치유하도록 대응했다 - 상세는
+// reserve() 주석 참고.
 @Component
 public class ShardedStockReservationStrategy implements StockReservationStrategy {
 
     private static final Logger log = LoggerFactory.getLogger(ShardedStockReservationStrategy.class);
-    private static final int SHARD_COUNT = 10;
 
+    private final int shardCount;
     private final CampaignStockShardRepository shardRepository;
     private final CampaignRepository campaignRepository;
+    private final CampaignStockShardBatchCreator batchCreator;
     private final Set<Long> initializedCampaignIds = ConcurrentHashMap.newKeySet();
+    // 캠페인별 생성-구간 락. 전역 락이 아니라 캠페인별로 나눈 이유: reserve()/rollback()마다
+    // 항상 거치는 ensureShardsExist()의 빠른 경로(initializedCampaignIds에 이미 있음)는 락을
+    // 아예 안 타므로, 이 맵은 "아직 초기화 안 된 캠페인"에서만, 그것도 초기화가 끝날 때까지의
+    // 짧은 구간에만 쓰인다.
+    private final ConcurrentHashMap<Long, Object> shardInitLocks = new ConcurrentHashMap<>();
 
+    // 2026-08-22 실측(Prometheus, coupon-duplicate-request-test.js): 샤드 10개로는 InnoDB row
+    // lock wait가 100초 동안 36,652건, 누적 대기시간 16,190,778ms(건당 평균 442ms) 발생 - 락을
+    // 오래 붙잡은 트랜잭션들이 HikariCP 커넥션(600개)을 그대로 물고 있어 풀이 완전히 고갈되고
+    // (active=600/600, pending 최대 400) 그 뒤로 요청이 커넥션조차 못 받아 줄을 섰다. 재컴파일
+    // 없이 이 값을 실험할 수 있게 상수 대신 설정값으로 뺐다 - 기본값은 이번 실측을 근거로 10에서
+    // 상향한 값이다.
     public ShardedStockReservationStrategy(CampaignStockShardRepository shardRepository,
-                                            CampaignRepository campaignRepository) {
+                                            CampaignRepository campaignRepository,
+                                            CampaignStockShardBatchCreator batchCreator,
+                                            @Value("${app.stock-shard.count:50}") int shardCount) {
         this.shardRepository = shardRepository;
         this.campaignRepository = campaignRepository;
+        this.batchCreator = batchCreator;
+        this.shardCount = shardCount;
     }
 
     @Override
     public boolean reserve(Long campaignId) {
         ensureShardsExist(campaignId);
-        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
-        for (int i = 0; i < SHARD_COUNT; i++) {
-            int shardIndex = (start + i) % SHARD_COUNT;
+        if (tryDecreaseAcrossShards(campaignId)) {
+            return true;
+        }
+        // 2026-08-21 실측: 테스트 리셋 SQL이 DELETE FROM campaign_stock_shard로 샤드를 통째로
+        // 지워도, 서버는 initializedCampaignIds에 이 캠페인이 이미 있다고 믿고 DB를 다시 안
+        // 본다 - 재시작 전까지는 리셋을 몇 번 해도 계속 전 샤드 SOLD_OUT만 난다. 그래서 진짜
+        // 품절을 선언하기 직전에 딱 한 번, 샤드가 실제로(전혀) 없는 상태인지 확인해서 그렇다면
+        // 스스로 무효화하고 재생성한다 - 정상 경로(샤드 있음)에는 이 확인이 아예 안 실행되므로
+        // 오버헤드가 없다.
+        if (!shardRepository.existsByCampaignId(campaignId)) {
+            initializedCampaignIds.remove(campaignId);
+            ensureShardsExist(campaignId);
+            return tryDecreaseAcrossShards(campaignId);
+        }
+        return false;
+    }
+
+    private boolean tryDecreaseAcrossShards(Long campaignId) {
+        int start = ThreadLocalRandom.current().nextInt(shardCount);
+        for (int i = 0; i < shardCount; i++) {
+            int shardIndex = (start + i) % shardCount;
             if (shardRepository.decreaseIfAvailable(campaignId, shardIndex) > 0) {
                 return true;
             }
@@ -58,9 +105,9 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     @Override
     public void rollback(Long campaignId) {
         ensureShardsExist(campaignId);
-        int start = ThreadLocalRandom.current().nextInt(SHARD_COUNT);
-        for (int i = 0; i < SHARD_COUNT; i++) {
-            int shardIndex = (start + i) % SHARD_COUNT;
+        int start = ThreadLocalRandom.current().nextInt(shardCount);
+        for (int i = 0; i < shardCount; i++) {
+            int shardIndex = (start + i) % shardCount;
             if (shardRepository.increaseIfBelowCapacity(campaignId, shardIndex) > 0) {
                 return;
             }
@@ -71,25 +118,53 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         log.warn("재고 원복 실패 - 모든 샤드가 capacity에 도달함 (campaignId={})", campaignId);
     }
 
+    // 2026-08-21 실측 버그 수정: 락 없이 "existsByCampaignId()=false면 생성" 만으로는, 샤드
+    // 1개만 먼저 커밋된 순간 다른 스레드가 "이미 있음"으로 오판해 나머지 9개 생성을 건너뛸 수
+    // 있었다(20,000 동시요청처럼 극단적 동시성에서 실제 재현됨) - 그 캠페인은 이후 영구히
+    // 샤드 1~2개분 재고로 쪼그라들어 멀쩡한 재고인데도 SOLD_OUT이 쏟아진다.
+    // 캠페인별 락으로 "확인 + 생성"을 원자화한다 - double-checked locking: 락 밖에서 먼저
+    // 빠르게 확인해 이미 끝난 경우 락 자체를 안 타게 하고(정상 트래픽 대부분이 여기서 끝남),
+    // 락 안에서 한 번 더 확인해 대기하던 다른 스레드들이 중복 생성하지 않게 한다.
     private void ensureShardsExist(Long campaignId) {
         if (initializedCampaignIds.contains(campaignId)) {
             return;
         }
-        if (!shardRepository.existsByCampaignId(campaignId)) {
-            Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
-            if (campaign != null) {
-                createShards(campaignId, campaign.getRemainingStock());
+        Object lock = shardInitLocks.computeIfAbsent(campaignId, id -> new Object());
+        synchronized (lock) {
+            if (initializedCampaignIds.contains(campaignId)) {
+                return;
             }
+            if (!shardRepository.existsByCampaignId(campaignId)) {
+                Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
+                if (campaign != null) {
+                    createShards(campaignId, campaign.getRemainingStock());
+                }
+            }
+            initializedCampaignIds.add(campaignId);
         }
-        initializedCampaignIds.add(campaignId);
     }
 
+    // 2026-08-22 1차 수정: shardRepository.insertIgnore()가 건마다 REQUIRES_NEW(=커넥션 새로
+    // 획득)라, 샤드 수만큼 순차 커넥션 왕복이 synchronized 블록 안에서 일어났다 - 커넥션 1번으로
+    // 전부 넣는 배치 INSERT로 바꿨다.
+    //
+    // 2026-08-22 2차 수정(round-10 실측, sys.innodb_lock_waits로 확인): 그 배치 INSERT를 여기서
+    // JdbcTemplate으로 직접 실행했더니, 이 메서드를 호출한 reserve()가 실은 이미 바깥의
+    // @Transactional(reserveStock()) 안에서 실행 중이라, 배치 INSERT가 그 트랜잭션에 편승해버렸다
+    // - 새로 만든 샤드 50개 행의 락이 삽입 즉시가 아니라 reserveStock() 전체가 끝날 때까지 안
+    // 풀렸다. 새 캠페인 첫 요청에 대량 트래픽이 몰리면 이 한 트랜잭션이 조금만 늦어져도 뒤따르는
+    // 요청 전부가 InnoDB lock_wait_timeout까지 한꺼번에 밀렸다(트랜잭션 하나가 rows_modified=50인
+    // 채로 1분 넘게 안 풀리며 수십 개 세션을 block하는 게 실제로 재현됨). CampaignStockShardBatchCreator로
+    // 분리해 REQUIRES_NEW로 실행되게 했다 - 커넥션 왕복은 여전히 1회, 그 1회짜리 트랜잭션은
+    // 바깥과 무관하게 즉시 커밋되어 락도 즉시 풀린다.
     private void createShards(Long campaignId, int totalToDistribute) {
-        int base = totalToDistribute / SHARD_COUNT;
-        int remainder = totalToDistribute % SHARD_COUNT;
-        for (int shardIndex = 0; shardIndex < SHARD_COUNT; shardIndex++) {
+        int base = totalToDistribute / shardCount;
+        int remainder = totalToDistribute % shardCount;
+        List<Object[]> batchArgs = new ArrayList<>(shardCount);
+        for (int shardIndex = 0; shardIndex < shardCount; shardIndex++) {
             int value = base + (shardIndex < remainder ? 1 : 0);
-            shardRepository.insertIgnore(campaignId, shardIndex, value);
+            batchArgs.add(new Object[] {campaignId, shardIndex, value, value});
         }
+        batchCreator.createAll(batchArgs);
     }
 }

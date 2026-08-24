@@ -7,6 +7,8 @@ import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
 import com.mealiverit.entity.user.MembershipTier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +32,8 @@ import org.springframework.stereotype.Service;
 // 한다 - 더는 "같은 트랜잭션이라 자동 롤백된다"는 전제가 없다.
 @Service
 public class CouponIssuanceService {
+
+    private static final Logger log = LoggerFactory.getLogger(CouponIssuanceService.class);
 
     private final CouponIssueRepository couponIssueRepository;
     private final CouponRepository couponRepository;
@@ -65,31 +69,56 @@ public class CouponIssuanceService {
             throw new BusinessException(ErrorCode.DUPLICATE_REQUEST_IN_PROGRESS);
         }
 
-        // 3) Redis 스냅샷 사전 필터. null(캐시 미스/Redis 장애)이거나 재고가 남아있으면 DB로 그대로
-        // 보낸다 - 여기서 "재고 있음"으로 통과시켜도 되고 안 해도 되고는 DB가 최종 판단하므로 무해하다.
-        // 값이 0 이하로 확실할 때만 DB(커넥션/락 대기열)를 안 타고 즉시 거절한다.
-        Integer snapshot = campaignStockCache.getSnapshot(campaignId);
-        if (snapshot != null && snapshot <= 0) {
-            throw new BusinessException(ErrorCode.SOLD_OUT);
-        }
-
-        // 4) 쿠폰 정책은 캠페인 락과 무관한 정적 데이터라 락 밖에서 미리 조회 - 락을 짧게 유지하는 게 목적.
-        Coupon coupon = couponRepository.findByCampaignId(campaignId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
-
-        // 5) 캠페인 row 락을 잡는 유일한 구간. 리턴하는 순간 락이 풀린다.
-        MembershipTier userTier = transactionalOperations.reserveStock(userId, campaignId);
-
-        // 6) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 5)에서 확정한 재고를
-        // 반드시 되돌려야 한다.
+        // 2026-08-22 부하테스트 실측: TTL 만료에만 기대면 부하로 처리 시간이 늘어나는 순간
+        // 이 가드가 무력화된다(CouponIssuanceDuplicateGuard 주석 참고) - 그래서 이 요청이 어떻게
+        // 끝나든(성공/거절/예외) 반드시 release()로 즉시 해제한다.
         try {
-            return transactionalOperations.insertCouponIssue(userId, campaignId, idempotencyKey, coupon, userTier);
-        } catch (DataIntegrityViolationException e) {
+            // 3) Redis 스냅샷 사전 필터. null(캐시 미스/Redis 장애)이거나 재고가 남아있으면 DB로 그대로
+            // 보낸다 - 여기서 "재고 있음"으로 통과시켜도 되고 안 해도 되고는 DB가 최종 판단하므로 무해하다.
+            // 값이 0 이하로 확실할 때만 DB(커넥션/락 대기열)를 안 타고 즉시 거절한다.
+            Integer snapshot = campaignStockCache.getSnapshot(campaignId);
+            if (snapshot != null && snapshot <= 0) {
+                throw new BusinessException(ErrorCode.SOLD_OUT);
+            }
+
+            // 4) 쿠폰 정책은 캠페인 락과 무관한 정적 데이터라 락 밖에서 미리 조회 - 락을 짧게 유지하는 게 목적.
+            Coupon coupon = couponRepository.findByCampaignId(campaignId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_REQUEST));
+
+            // 5) 캠페인 row 락을 잡는 유일한 구간. 리턴하는 순간 락이 풀린다.
+            MembershipTier userTier = transactionalOperations.reserveStock(userId, campaignId);
+
+            // 6) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 5)에서 확정한 재고를
+            // 반드시 되돌려야 한다.
+            try {
+                return transactionalOperations.insertCouponIssue(userId, campaignId, idempotencyKey, coupon, userTier);
+            } catch (DataIntegrityViolationException e) {
+                compensateStockRollbackSafely(campaignId, userId, e);
+                return transactionalOperations.recoverFromConflict(campaignId, userId, e);
+            } catch (RuntimeException e) {
+                compensateStockRollbackSafely(campaignId, userId, e);
+                throw e;
+            }
+        } finally {
+            duplicateGuard.release(campaignId, userId);
+        }
+    }
+
+    // 2026-08-22 실측(round-06, HikariCP 풀 고갈 상태): compensateStockRollback() 자체가 새
+    // 커넥션을 못 받아 실패하는 사례가 재현됨 - 이 호출을 그대로 두면 그 예외가 catch 블록을
+    // 빠져나가면서 원래 실패 원인(cause)을 덮어쓰고, reserveStock()에서 이미 차감된 재고는
+    // 영원히 원복되지 않은 채 사라진다(재고 소진 카운터와 실제 발급 건수가 영구히 어긋남 -
+    // 초과발급이 아니라 "유실" 방향). 여기서 롤백 실패를 삼켜서 원래 흐름(cause 기준 처리)은
+    // 그대로 진행하되, 반드시 ERROR로 로그를 남겨 정합성 검증 배치/수동 확인으로 이어지게 한다.
+    // 근본 해결은 아니다 - 커넥션이 정말 없으면 여기서 할 수 있는 건 "조용히 사라지지 않게
+    // 만드는 것"까지다.
+    private void compensateStockRollbackSafely(Long campaignId, Long userId, Exception cause) {
+        try {
             transactionalOperations.compensateStockRollback(campaignId);
-            return transactionalOperations.recoverFromConflict(campaignId, userId, e);
-        } catch (RuntimeException e) {
-            transactionalOperations.compensateStockRollback(campaignId);
-            throw e;
+        } catch (Exception rollbackFailure) {
+            log.error("재고 원복 실패 - 재고 유실 가능성, 수동 정합성 확인 필요 "
+                            + "(campaignId={}, userId={}, 원래 실패 원인={})",
+                    campaignId, userId, cause.toString(), rollbackFailure);
         }
     }
 }

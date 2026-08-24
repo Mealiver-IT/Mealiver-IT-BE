@@ -63,7 +63,12 @@ public class Order {
         this.couponIssueId = couponIssueId;
     }
 
+    // 기존엔 현재 상태와 무관하게 무조건 CANCELED로 덮어써서 이미 최소되거나 환불된 주문도 재취소 요청이 그대로 통과됨
+    // -> Campaign.close()와 동일하게 COMPLETED 상태에서만 취소 가능하도록 가드
     public void cancel() {
+        if (status == OrderStatus.REFUNDED) {
+            throw new InvalidOrderStateTransitionException(status, OrderStatus.CANCELED);
+        }
         this.status = OrderStatus.CANCELED;
     }
 
