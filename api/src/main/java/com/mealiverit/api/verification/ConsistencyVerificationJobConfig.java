@@ -12,6 +12,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.mealiverit.api.verification.report.ConsistencyReportListener;
+
 // 기본값 비활성. 이 Job(및 verification 패키지의 나머지 Step/Writer 설정들)이 무조건 컴포넌트
 // 스캔되면, @EnableJdbcJobRepository가 만드는 JobRepository 인프라가 테스트용 H2 DB에서
 // BATCH_JOB_INSTANCE_SEQ를 실제 SQL SEQUENCE로 찾으려다 실패한다(마이그레이션은 MySQL용
@@ -33,6 +35,7 @@ public class ConsistencyVerificationJobConfig {
 	@Bean
 	public Job dailyConsistencyVerificationJob(
 	        JobRepository jobRepository,
+	        ConsistencyReportListener consistencyReportListener,
 	        Step stockCheckStep,
 	        Step counterSyncStep,
 	        Step missingLogStep,
@@ -41,6 +44,7 @@ public class ConsistencyVerificationJobConfig {
 	        Step membershipEligibilityStep
 	) {
 	    return new JobBuilder("DailyConsistencyVerificationJob", jobRepository)
+	    		.listener(consistencyReportListener)
 	            .start(stockCheckStep)
 	            .next(counterSyncStep)
 	            .next(missingLogStep)
@@ -53,12 +57,14 @@ public class ConsistencyVerificationJobConfig {
     @Bean
     public Job tierOrdersMismatchJob(
             JobRepository jobRepository,
+            ConsistencyReportListener consistencyReportListener,
             Step tierConsistencyStep
     ) {
         return new JobBuilder(
                 "TierOrdersMismatchJob",
                 jobRepository
         )
+        		.listener(consistencyReportListener)
         		.validator(tierOrdersMismatchJobParametersValidator())
                 .start(tierConsistencyStep)
                 .build();

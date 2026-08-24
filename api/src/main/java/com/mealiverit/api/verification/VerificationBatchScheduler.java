@@ -56,6 +56,7 @@ public class VerificationBatchScheduler {
     }
 
     @Scheduled(cron = "0 00 4 1 * *")
+//    @Scheduled(cron = "0 * * * * *")
     public void runMonthly() {
         run(YearMonth.now().minusMonths(1));
     }
