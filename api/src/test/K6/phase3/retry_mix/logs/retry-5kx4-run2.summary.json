@@ -1,0 +1,156 @@
+{
+    "metrics": {
+        "http_reqs": {
+            "count": 20000,
+            "rate": 148.14452705696013
+        },
+        "http_req_connecting": {
+            "avg": 0.5475669200000018,
+            "min": 0,
+            "med": 0,
+            "max": 90.8358,
+            "p(90)": 1.0789100000000003,
+            "p(95)": 1.2613050000000001
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 491.10797269499665,
+            "min": 1.0894,
+            "med": 287.98775,
+            "max": 5533.364,
+            "p(90)": 1355.3529100000007,
+            "p(95)": 1757.9286249999998
+        },
+        "http_req_receiving": {
+            "p(95)": 2.607219999999998,
+            "avg": 0.6650829449999968,
+            "min": 0,
+            "med": 0,
+            "max": 197.6722,
+            "p(90)": 1.0067
+        },
+        "http_req_tls_handshaking": {
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0
+        },
+        "iteration_duration": {
+            "p(95)": 2762.2483099999995,
+            "avg": 1492.9454559949945,
+            "min": 1001.4602,
+            "med": 1290.22085,
+            "max": 6535.7809,
+            "p(90)": 2358.50146
+        },
+        "http_req_failed": {
+            "fails": 20000,
+            "passes": 0,
+            "thresholds": {
+                "rate<0.05": false
+            },
+            "value": 0
+        },
+        "http_req_duration{scenario:retry_mix}": {
+            "med": 287.98775,
+            "max": 5533.364,
+            "p(90)": 1355.3529100000007,
+            "p(95)": 1757.9286249999998,
+            "avg": 491.10797269499665,
+            "min": 1.0894,
+            "thresholds": {
+                "p(95)<1000": true
+            }
+        },
+        "vus": {
+            "value": 206,
+            "min": 59,
+            "max": 5000
+        },
+        "retry_issue_success": {
+            "count": 20000,
+            "rate": 148.14452705696013
+        },
+        "http_req_blocked": {
+            "med": 0,
+            "max": 90.8358,
+            "p(90)": 1.0989,
+            "p(95)": 1.3026,
+            "avg": 0.5585505700000013,
+            "min": 0
+        },
+        "data_received": {
+            "count": 8798882,
+            "rate": 65175.31062599997
+        },
+        "iterations": {
+            "count": 20000,
+            "rate": 148.14452705696013
+        },
+        "http_req_sending": {
+            "max": 2.0844,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.01839120499999999,
+            "min": 0,
+            "med": 0
+        },
+        "vus_max": {
+            "min": 5000,
+            "max": 5000,
+            "value": 5000
+        },
+        "http_req_waiting": {
+            "min": 0.5123,
+            "med": 287.09225000000004,
+            "max": 5533.364,
+            "p(90)": 1355.0265700000007,
+            "p(95)": 1757.69326,
+            "avg": 490.42449854499716
+        },
+        "retry_duplicate_issue_rate": {
+            "passes": 0,
+            "fails": 20000,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "checks": {
+            "passes": 20000,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.95": false
+            },
+            "value": 1
+        },
+        "data_sent": {
+            "count": 3600000,
+            "rate": 26666.01487025282
+        },
+        "http_req_duration": {
+            "med": 287.98775,
+            "max": 5533.364,
+            "p(90)": 1355.3529100000007,
+            "p(95)": 1757.9286249999998,
+            "avg": 491.10797269499665,
+            "min": 1.0894
+        }
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "retry: status is expected": {
+                    "name": "retry: status is expected",
+                    "path": "::retry: status is expected",
+                    "id": "165921a204e1c5123d3203f9833499f6",
+                    "passes": 20000,
+                    "fails": 0
+                }
+            }
+    }
+}
