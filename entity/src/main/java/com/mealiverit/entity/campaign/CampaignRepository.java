@@ -1,6 +1,8 @@
 package com.mealiverit.entity.campaign;
 
 import jakarta.persistence.LockModeType;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -47,4 +49,8 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     @Modifying
     @Query("UPDATE Campaign c SET c.remainingStock = :value WHERE c.id = :campaignId")
     void setRemainingStock(@Param("campaignId") Long campaignId, @Param("value") int value);
+
+    // CampaignScheduledOpenBatchJob이 자동 오픈 대상(예약 시간이 지난 READY 캠페인)을 찾을 때 사용
+    // 새 칼럼 없이 기존 openAt을 "예정 시각"으로 재사용
+    List<Campaign> findByStatusAndOpenAtLessThanEqual(CampaignStatus status, LocalDateTime now);
 }
