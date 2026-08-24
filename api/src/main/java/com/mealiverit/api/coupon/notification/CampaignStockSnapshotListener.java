@@ -1,6 +1,7 @@
 package com.mealiverit.api.coupon.notification;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
+import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
 import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -27,11 +28,14 @@ public class CampaignStockSnapshotListener {
 
     private final CampaignStockShardRepository campaignStockShardRepository;
     private final CampaignStockCache campaignStockCache;
+    private final CampaignStockEmitterRegistry emitterRegistry;
 
     public CampaignStockSnapshotListener(CampaignStockShardRepository campaignStockShardRepository,
-                                          CampaignStockCache campaignStockCache) {
+                                         CampaignStockCache campaignStockCache,
+                                         CampaignStockEmitterRegistry emitterRegistry) {
         this.campaignStockShardRepository = campaignStockShardRepository;
         this.campaignStockCache = campaignStockCache;
+        this.emitterRegistry = emitterRegistry;
     }
 
     @Async
@@ -39,5 +43,6 @@ public class CampaignStockSnapshotListener {
     public void onCouponIssued(CouponIssuedEvent event) {
         int remainingStock = campaignStockShardRepository.sumRemainingStock(event.campaignId());
         campaignStockCache.updateSnapshot(event.campaignId(), remainingStock);
+        emitterRegistry.broadcast(event.campaignId(), remainingStock);
     }
 }
