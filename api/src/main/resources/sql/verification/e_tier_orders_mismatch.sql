@@ -8,6 +8,7 @@
 --
 -- 주의: LEFT JOIN + COALESCE(order_count, 0) 필수. INNER JOIN이면 해당 월 주문이 0건인 유저가
 -- 조인에서 탈락해 검증 대상에서 빠진다 (01_설계보완_검토안.txt 0절 #2 참고).
+-- ORDER BY t.user_id;
 
 SELECT * FROM (
     SELECT u.id AS user_id,
@@ -24,9 +25,9 @@ SELECT * FROM (
         SELECT user_id, COUNT(*) AS order_count
         FROM orders
         WHERE status = 'COMPLETED' AND paid_amount >= 10000
-          AND completed_at >= :월시작 AND completed_at < :월종료
+         AND completed_at >= :월시작 AND completed_at < :월종료
         GROUP BY user_id
     ) computed ON computed.user_id = u.id
 ) t
-WHERE t.current_tier <> t.expected_tier
--- ORDER BY t.user_id;
+WHERE t.current_tier <> t.expected_tier;
+
