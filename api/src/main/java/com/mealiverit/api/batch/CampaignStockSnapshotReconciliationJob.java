@@ -1,6 +1,7 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
+import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.CampaignStatus;
@@ -31,13 +32,16 @@ public class CampaignStockSnapshotReconciliationJob {
     private final CampaignRepository campaignRepository;
     private final CampaignStockShardRepository campaignStockShardRepository;
     private final CampaignStockCache campaignStockCache;
+    private final CampaignStockEmitterRegistry emitterRegistry;
 
     public CampaignStockSnapshotReconciliationJob(CampaignRepository campaignRepository,
-                                                    CampaignStockShardRepository campaignStockShardRepository,
-                                                    CampaignStockCache campaignStockCache) {
+                                                  CampaignStockShardRepository campaignStockShardRepository,
+                                                  CampaignStockCache campaignStockCache,
+                                                  CampaignStockEmitterRegistry emitterRegistry) {
         this.campaignRepository = campaignRepository;
         this.campaignStockShardRepository = campaignStockShardRepository;
         this.campaignStockCache = campaignStockCache;
+        this.emitterRegistry = emitterRegistry;
     }
 
     // 2026-08-21 실측: scheduledReconcile()가 프록시를 거쳐 정상 호출돼도, 그 안에서
@@ -73,6 +77,7 @@ public class CampaignStockSnapshotReconciliationJob {
             int remainingStock = campaignStockShardRepository.sumRemainingStock(campaign.getId());
             campaignRepository.setRemainingStock(campaign.getId(), remainingStock);
             campaignStockCache.updateSnapshot(campaign.getId(), remainingStock);
+            emitterRegistry.broadcast(campaign.getId(), remainingStock);
         }
         log.debug("캠페인 재고 스냅샷 재동기화 완료: {}건", openCampaigns.size());
     }
