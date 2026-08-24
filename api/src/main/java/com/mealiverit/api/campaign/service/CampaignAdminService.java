@@ -7,6 +7,7 @@ import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
@@ -28,15 +29,17 @@ public class CampaignAdminService {
     private final CouponRepository couponRepository;
     private final CampaignStockCache campaignStockCache;
     private final CouponIssueRepository couponIssueRepository;
+    private final CampaignStockShardRepository campaignStockShardRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository,
                                 CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository,
-                                ApplicationEventPublisher eventPublisher) {
+                                CampaignStockShardRepository campaignStockShardRepository, ApplicationEventPublisher eventPublisher) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.campaignStockCache = campaignStockCache;
         this.couponIssueRepository = couponIssueRepository;
+        this.campaignStockShardRepository = campaignStockShardRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -101,6 +104,19 @@ public class CampaignAdminService {
         eventPublisher.publishEvent(new CampaignStatusChangedEvent(campaignId, campaign.getStatus()));
         Coupon coupon = couponRepository.findByCampaignId(campaignId).orElse(null);
         return CampaignResponse.of(campaign, coupon);
+    }
+
+    // 캠페인 삭제(하드 삭제) - 이미 쿠폰이 발급된 캠페인은 정합성 검증 배치가 참조하는 데이터라 삭제를 막음
+    // FK 제약 순서상 campaign_stock_shard -> coupon -> campaign 순으로 지움
+    @Transactional
+    public void delete(Long campaignId) {
+        Campaign campaign = findCampaignOrThrow(campaignId);
+        if (couponIssueRepository.countByCampaignId(campaignId) > 0) {
+            throw new BusinessException(ErrorCode.CAMPAIGN_HAS_ISSUED_COUPONS);
+        }
+        campaignStockShardRepository.deleteByCampaignId(campaignId);
+        couponRepository.findByCampaignId(campaignId).ifPresent(couponRepository::delete);
+        campaignRepository.delete(campaign);
     }
 
     private Campaign findCampaignOrThrow(Long campaignId) {

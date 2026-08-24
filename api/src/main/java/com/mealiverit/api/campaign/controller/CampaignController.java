@@ -38,6 +38,13 @@ public class CampaignController {
         return ApiResponse.success(campaignAdminService.getById(id));
     }
 
+    // 캠페인 삭제(하드 삭제) - 이미 쿠폰이 발급된 캠페인은 CampaignAdminService.delete()가 409로 거부
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        campaignAdminService.delete(id);
+        return ApiResponse.empty();
+    }
+
     // 선착순 잔여 수량 조회 - 별도 인증 없음(관리자 CRUD와 같은 컨트롤러를 공유하는 기존 패턴 유지)
     @GetMapping("/{campaignId}/stock")
     public ApiResponse<CampaignStockResponse> getStock(@PathVariable Long campaignId) {
