@@ -1,0 +1,146 @@
+{
+    "root_group": {
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "status is 201, 200, or 409(중복차단)": {
+                    "name": "status is 201, 200, or 409(중복차단)",
+                    "path": "::status is 201, 200, or 409(중복차단)",
+                    "id": "e217bcc94a84b2688f97434375e758d5",
+                    "passes": 20000,
+                    "fails": 0
+                }
+            },
+        "name": ""
+    },
+    "metrics": {
+        "vus": {
+            "value": 20000,
+            "min": 0,
+            "max": 20000
+        },
+        "http_reqs": {
+            "count": 20000,
+            "rate": 95.22001866975097
+        },
+        "http_req_duration": {
+            "p(95)": 7429.856295,
+            "avg": 4274.894428819984,
+            "min": 11.84,
+            "med": 3473.1985999999997,
+            "max": 13270.0683,
+            "p(90)": 7140.23521
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 20000,
+            "value": 0
+        },
+        "http_req_sending": {
+            "med": 0,
+            "max": 47.0925,
+            "p(90)": 0,
+            "p(95)": 0.5185,
+            "avg": 0.08531369500000012,
+            "min": 0
+        },
+        "checks": {
+            "passes": 20000,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_blocked": {
+            "avg": 4.994481359999997,
+            "min": 0,
+            "med": 1.0332,
+            "max": 516.367,
+            "p(90)": 12.427520000000023,
+            "p(95)": 28.19249499999998
+        },
+        "iterations": {
+            "count": 20000,
+            "rate": 95.22001866975097
+        },
+        "coupon_issue_success": {
+            "count": 5000,
+            "rate": 23.805004667437743
+        },
+        "data_sent": {
+            "count": 3680000,
+            "rate": 17520.48343523418
+        },
+        "vus_max": {
+            "value": 20000,
+            "min": 11414,
+            "max": 20000
+        },
+        "http_req_waiting": {
+            "avg": 4273.4971485199785,
+            "min": 11.84,
+            "med": 3472.08025,
+            "max": 13270.0683,
+            "p(90)": 7139.24906,
+            "p(95)": 7427.225554999999
+        },
+        "coupon_issue_already": {
+            "count": 2462,
+            "rate": 11.721584298246345
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 3473.1985999999997,
+            "max": 13270.0683,
+            "p(90)": 7140.23521,
+            "p(95)": 7429.856295,
+            "avg": 4274.894428819984,
+            "min": 11.84
+        },
+        "data_received": {
+            "count": 6479668,
+            "rate": 30849.7053966894
+        },
+        "iteration_duration": {
+            "med": 3477.0243,
+            "max": 13270.8179,
+            "p(90)": 7146.582040000002,
+            "p(95)": 7434.848795,
+            "avg": 4280.030574799976,
+            "min": 17.809
+        },
+        "http_req_receiving": {
+            "p(90)": 1.6430300000000073,
+            "p(95)": 5.1596549999999946,
+            "avg": 1.3119666049999938,
+            "min": 0,
+            "med": 0,
+            "max": 1837.0301
+        },
+        "http_req_connecting": {
+            "p(90)": 12.27,
+            "p(95)": 27.9971,
+            "avg": 4.9378758349999945,
+            "min": 0,
+            "med": 1.0308,
+            "max": 516.367
+        },
+        "coupon_issue_unexpected": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count>=0": false
+            }
+        },
+        "coupon_issue_duplicate_blocked": {
+            "count": 12538,
+            "rate": 59.69342970406689
+        }
+    }
+}
