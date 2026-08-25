@@ -2,7 +2,9 @@ package com.mealiverit.api.seed;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -16,6 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 // 캠페인/쿠폰 마스터. 캠페인 15개, 총 재고 300만 — 등급 게이트(min_membership_tier)를
 // 4단계 다 섞어서 eligibility 체크가 의미 있는 테스트 데이터가 되도록 구성했다.
 // 캠페인:쿠폰은 1:1(Coupon.java 주석 참고).
+//
+// 재개(resume, 2026-08-25 추가): SPECS의 캠페인명은 전부 고정 문자열이라, 이미 존재하는 이름은
+// 건너뛰고 없는 것만 채운다. campaign 테이블엔 이 러너 말고도 dirty-data 픽스처나 관리자 화면에서
+// 만든 캠페인이 섞여 있을 수 있어 COUNT(*) 같은 단순 행수 비교 대신 이름으로 정확히 매칭한다.
 @Component
 @Order(30)
 @ConditionalOnProperty(name = "seed.campaigns.enabled", havingValue = "true")
@@ -29,6 +35,8 @@ public class CampaignSeedRunner implements CommandLineRunner {
 
     private static final String SELECT_LAST_CAMPAIGN_ID_SQL =
         "SELECT id FROM campaign ORDER BY id DESC LIMIT 1";
+
+    private static final String SELECT_EXISTING_NAMES_SQL = "SELECT name FROM campaign";
 
     private static final String INSERT_COUPON_SQL =
         "INSERT INTO coupon (campaign_id, discount_type, discount_value, min_order_amount, max_discount_amount, valid_hours) "
@@ -65,11 +73,20 @@ public class CampaignSeedRunner implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
+        Set<String> existingNames = new HashSet<>(jdbcTemplate.queryForList(SELECT_EXISTING_NAMES_SQL, String.class));
+
         LocalDateTime openAt = LocalDateTime.now().minusDays(30);
         LocalDateTime closeAt = openAt.plusDays(90);
         long totalStock = 0;
+        int inserted = 0;
+        int skipped = 0;
 
         for (CampaignSpec spec : SPECS) {
+            if (existingNames.contains(spec.name)) {
+                skipped++;
+                continue;
+            }
+
             jdbcTemplate.update(INSERT_CAMPAIGN_SQL,
                 spec.name, spec.totalStock, spec.totalStock, openAt, closeAt, "OPEN", spec.minTier);
             Long campaignId = jdbcTemplate.queryForObject(SELECT_LAST_CAMPAIGN_ID_SQL, Long.class);
@@ -81,9 +98,11 @@ public class CampaignSeedRunner implements CommandLineRunner {
                 spec.validHours);
 
             totalStock += spec.totalStock;
+            inserted++;
         }
 
-        log.info("done: {} campaigns + coupons inserted, totalStock={}", SPECS.size(), totalStock);
+        log.info("done: {} campaigns + coupons inserted (skip {} already existing), totalStock={}",
+            inserted, skipped, totalStock);
     }
 
     private static final class CampaignSpec {
