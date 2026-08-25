@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.mealiverit.api.coupon.service.CouponIssueService;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.coupon.CouponStatus;
@@ -45,6 +46,8 @@ public class CouponControllerTest {
     private CouponIssueRepository couponIssueRepository;
     @Autowired
     private CouponStateLogRepository couponStateLogRepository;
+    @Autowired
+    private CouponIssueService couponIssueService;
 
     @Test
     void 회수_성공시_200() throws Exception {
@@ -96,6 +99,19 @@ public class CouponControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void 이미_사용된_쿠폰은_회수_불가_409() throws Exception {
+        Long issuedId = createUsedCoupon();
+
+        mockMvc.perform(post("/api/admin/coupons/{issueId}/revoke", issuedId)
+                        .header("Idempotency-Key", "revoke-" + UUID.randomUUID()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("COUPON_INVALID_STATE_TRANSITION"));
+
+        CouponIssue result = couponIssueRepository.findById(issuedId).orElseThrow();
+        assertThat(result.getStatus()).isEqualTo(CouponStatus.USED); // 상태 안 바뀌었어야 함
+    }
+
     private Long createIssuedCoupon() {
         Campaign campaign = campaignRepository.save(new Campaign("회수 테스트 캠페인", 10, null));
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), DiscountType.FIXED, BigDecimal.valueOf(1000), null, null, 24));
@@ -106,5 +122,11 @@ public class CouponControllerTest {
                 "idem-issue-" + UUID.randomUUID(), coupon, MembershipTier.PRIVATE, BigDecimal.valueOf(1000));
 
         return couponIssueRepository.save(issue).getId();
+    }
+
+    private Long createUsedCoupon() {
+        Long issueId = createIssuedCoupon();
+        couponIssueService.markUsed(issueId, "setup-used-" + UUID.randomUUID());
+        return issueId;
     }
 }
