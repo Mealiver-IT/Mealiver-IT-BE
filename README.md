@@ -274,11 +274,17 @@ public enum CouponStatus {
 
 (`docs/planning/05_시스템설계.txt` 1절)
 
-300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종(파일 7개)을 `api/src/main/resources/sql/verification/`에 작성했습니다: 재고 초과발급 검증, 재고-이력 카운터 대사, 상태전이 위반 검증(3개 쿼리), 멤버십 등급 자격요건 검증(발급 시점 스냅샷 기준, 현재 등급 기준으로 비교하면 false positive 발생), 계급-주문 집계 일치 검증. **전 항목 0 rows**(폴더 [README](api/src/main/resources/sql/verification/README.md) 참고). 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
+300만 건 전체를 대상으로, `NOW()` 등 실행 시점에 의존하지 않는 **결정론적** 검증 쿼리 5종을 `api/src/main/resources/sql/verification/`에 작성했습니다.
 
-오염 데이터 탐지도 검증합니다(`api/src/main/resources/sql/fixtures/dirty_data_seed.sql`) — 검증쿼리 5종(파일 7개) 각각을 위반하는 오염 데이터를 100건씩(총 700건) 전용 캠페인/유저로 격리해 삽입한 뒤, 검증 SQL이 정확히 예상된 건수만큼 탐지하는지 확인합니다. "정상 데이터 0 rows + 오염 데이터 정확히 N rows"인 양방향 테스트라 검증 로직이 실제로 동작한다는 증거가 됩니다(`dirty_data_cleanup.sql`로 재실행 전 초기화).
+| 파일 | 검증 항목 |
+|---|---|
+| `a_stock_overissue.sql` | 캠페인별 발급 수량이 재고를 초과하지 않았는가 |
+| `b_counter_mismatch.sql` | 이력 테이블과 캠페인 카운터(재고/발급수)가 일치하는가 |
+| `c1_missing_log.sql` / `c2_invalid_transition.sql` / `c3_broken_chain.sql` | 상태전이가 유효한가 (3개 쿼리) |
+| `d_tier_violation.sql` | 회원 전용 쿠폰이 등급 미달 유저에게 발급된 적 없는가 (발급 시점 스냅샷 기준 — 현재 등급으로 비교하면 false positive 발생) |
+| `e_tier_orders_mismatch.sql` | 계급이 `orders` 집계와 일치하는가 |
 
-MySQL 클라이언트로 직접 실행하거나, `Step` 단위 Spring Batch Job(`ConsistencyVerificationJob`)으로 자동 실행할 수 있습니다.
+자세한 설계 근거는 폴더 [README](api/src/main/resources/sql/verification/README.md) 참고. 1인 1매(중복 발급)는 `uk_campaign_user` DB 유니크 제약으로 INSERT 단계에서 원천 차단되어 별도 검증 쿼리 대상에서 제외했고, idempotency 위반은 별도 통합테스트로 검증합니다.
 
 ---
 
