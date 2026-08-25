@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Repository
 public class AnomalyReportRepository {
@@ -25,21 +26,20 @@ public class AnomalyReportRepository {
      * 이상이 0건인 CheckType도 0으로 포함한다.
      */
     public Map<CheckType, Long> countByJobExecutionId(
-            long jobExecutionId
+            long jobExecutionId,
+            Set<CheckType> applicableTypes
     ) {
-
         String sql = """
             SELECT check_type, COUNT(*) AS cnt
             FROM verification_result
             WHERE job_execution_id = :jobExecutionId
             GROUP BY check_type
             """;
-
         Map<CheckType, Long> result =
                 new LinkedHashMap<>();
 
-        // 모든 검증 항목을 먼저 0건으로 초기화
-        for (CheckType checkType : CheckType.values()) {
+        // 해당 Job이 담당하는 CheckType만 0건으로 초기화
+        for (CheckType checkType : applicableTypes) {
             result.put(checkType, 0L);
         }
 
@@ -50,19 +50,19 @@ public class AnomalyReportRepository {
                         jobExecutionId
                 ),
                 rs -> {
-
                     CheckType checkType =
                             CheckType.fromCode(
                                     rs.getString("check_type")
                             );
-
-                    result.put(
-                            checkType,
-                            rs.getLong("cnt")
-                    );
+                    // 이 Job이 담당하지 않는 타입이면 무시
+                    if (applicableTypes.contains(checkType)) {
+                        result.put(
+                                checkType,
+                                rs.getLong("cnt")
+                        );
+                    }
                 }
         );
-
         return result;
     }
 
@@ -97,9 +97,10 @@ public class AnomalyReportRepository {
                                 ),
                                 rs.getString("reference_id"),
                                 rs.getString("detail"),
-                                rs.getTimestamp(
-                                        "detected_at"
-                                ).toLocalDateTime()
+                                rs.getObject(
+                                        "detected_at",
+                                        java.time.LocalDateTime.class
+                                )
                         )
         );
     }

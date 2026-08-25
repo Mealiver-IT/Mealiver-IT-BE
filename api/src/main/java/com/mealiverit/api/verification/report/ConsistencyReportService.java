@@ -8,15 +8,17 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConsistencyReportService {
 
-    private final AnomalyReportRepository anomalyReportRepository;
+	private final AnomalyReportRepository anomalyReportRepository;
+	private final JobCheckTypeResolver jobCheckTypeResolver;
     private final VerificationReportRepository verificationReportRepository;
-    private final HtmlReportGenerator htmlReportGenerator;
+    private final NotionReportGenerator notionReportGenerator;
     private final SlackNotifier slackNotifier;
 
     public void generate(
@@ -27,10 +29,20 @@ public class ConsistencyReportService {
                 jobExecution.getId();
 
         // 1. 검증 항목별 이상 건수
+     // 1. 검증 항목별 이상 건수
+        String jobName =
+                jobExecution
+                        .getJobInstance()
+                        .getJobName();
+
+        Set<CheckType> applicableTypes =
+                jobCheckTypeResolver.resolve(jobName);
+
         Map<CheckType, Long> anomalyCounts =
                 anomalyReportRepository
                         .countByJobExecutionId(
-                                jobExecutionId
+                                jobExecutionId,
+                                applicableTypes
                         );
 
         // 2. 이상 상세
@@ -76,24 +88,20 @@ public class ConsistencyReportService {
                         anomalyDetails
                 );
 
-        // 6. HTML 파일 생성
-        String reportFilePath =
-                htmlReportGenerator.generate(
+     // 6. Notion 페이지 생성
+        String reportUrl =
+                notionReportGenerator.generate(
                         report
                 );
 
         // 7. DB에 실행 요약 저장
         verificationReportRepository.save(
                 report,
-                reportFilePath
+                reportUrl
         );
 
         // 8. Slack 알림
         try {
-
-            String reportUrl =
-                    htmlReportGenerator
-                            .buildPublicUrl(report);
 
             slackNotifier.send(
                     report,
