@@ -13,13 +13,11 @@ class CouponStatusTest {
         assertThat(CouponStatus.ISSUED.canTransitionTo(CouponStatus.EXPIRED)).isTrue();
     }
 
-    // USED는 CANCELED(관리자 강제회수)와 ISSUED(주문취소 시 본인 재사용 복귀, 2026-08-13 팀 결정)로만
-    // 전이 가능하고, 그 외(자기자신 포함 역행)는 불가능해야 한다. USED->EXPIRED는 의도적으로 불허 —
-    // ISSUED로 복귀한 뒤 기한이 지났으면 만료 배치가 알아서 처리하므로 직접 전이는 불필요
-    // (04_아키텍처.txt 3절).
+    // USED는 ISSUED(주문취소 시 본인 재사용 복귀)로만 전이 가능하고, 그 외(자기자신 포함 역행)는 불가능해야 한다.
+    // USED->EXPIRED는 의도적으로 불허 — ISSUED로 복귀한 뒤 기한이 지났으면 만료 배치가 알아서 처리하므로 직접 전이는 불필요
     @Test
-    void used_canTransitionToCanceledOrIssuedOnly() {
-        assertThat(CouponStatus.USED.canTransitionTo(CouponStatus.CANCELED)).isTrue();
+    void used_canTransitionToIssuedOnly() {
+        assertThat(CouponStatus.USED.canTransitionTo(CouponStatus.CANCELED)).isFalse();
         assertThat(CouponStatus.USED.canTransitionTo(CouponStatus.ISSUED)).isTrue();
         assertThat(CouponStatus.USED.canTransitionTo(CouponStatus.USED)).isFalse();
         assertThat(CouponStatus.USED.canTransitionTo(CouponStatus.EXPIRED)).isFalse();
