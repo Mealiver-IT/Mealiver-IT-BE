@@ -186,17 +186,8 @@ flowchart LR
 
 `ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. `USED → ISSUED`(주문취소 시 본인 재사용 복귀)만 예외적으로 허용됩니다.
 
-```mermaid
-stateDiagram-v2
-    [*] --> ISSUED : 발급
-    ISSUED --> USED : 결제 적용
-    ISSUED --> CANCELED : 관리자 강제회수
-    ISSUED --> EXPIRED : 유효기간 만료(배치)
-    USED --> CANCELED : 관리자 강제회수
-    USED --> ISSUED : 주문취소(본인 재사용 복귀)
-    CANCELED --> [*]
-    EXPIRED --> [*]
-```
+<img width="2560" height="1440" alt="상태 전이" src="https://github.com/user-attachments/assets/fe3d8fff-e370-4264-9157-867bdebcbc7f" />
+
 
 ```java
 public enum CouponStatus {
@@ -204,7 +195,7 @@ public enum CouponStatus {
 
     private static final Map<CouponStatus, Set<CouponStatus>> TRANSITIONS = Map.of(
             ISSUED, Set.of(USED, CANCELED, EXPIRED),
-            USED, Set.of(CANCELED, ISSUED),   // CANCELED = 관리자 강제회수, ISSUED = 주문취소 시 재사용 복귀
+            USED, Set.of(ISSUED),   // 주문 취소 시 재사용 복귀만 허용, 이미 사용된 쿠폰은 관리자 강제 회수 불가
             CANCELED, Set.of(),
             EXPIRED, Set.of()
     );
