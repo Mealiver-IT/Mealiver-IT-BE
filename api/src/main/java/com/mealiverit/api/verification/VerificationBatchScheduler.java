@@ -41,6 +41,7 @@ public class VerificationBatchScheduler {
     }
 
     @Scheduled(cron = "0 0 3 * * *")
+//    @Scheduled(cron = "0 * * * * *")
     public void runDaily() {
         JobParameters jobParameters = new JobParametersBuilder()
                 .addLocalDate("runDate", LocalDate.now())

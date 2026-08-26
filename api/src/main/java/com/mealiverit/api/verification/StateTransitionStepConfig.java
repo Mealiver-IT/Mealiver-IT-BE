@@ -8,6 +8,7 @@ import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWrite
 import org.springframework.batch.infrastructure.item.database.JdbcPagingItemReader;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -75,6 +76,16 @@ public class StateTransitionStepConfig {
                 "status=" + row.status()
         );
     }
+    
+    @Bean
+    public VerificationScanCountListener missingLogScanCountListener(
+            JdbcTemplate jdbcTemplate
+    ) {
+        return new VerificationScanCountListener(
+                jdbcTemplate,
+                "SELECT COUNT(*) FROM coupon_issue"
+        );
+    }
 
     @Bean
     public Step missingLogStep(
@@ -82,7 +93,8 @@ public class StateTransitionStepConfig {
             PlatformTransactionManager transactionManager,
             JdbcPagingItemReader<MissingLogRow> missingLogReader,
             ItemProcessor<MissingLogRow, VerificationViolation> missingLogProcessor,
-            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
+            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter,
+            VerificationScanCountListener missingLogScanCountListener
     ) {
         return VerificationStepFactory.chunkStep(
                 "missingLogStep",
@@ -90,7 +102,8 @@ public class StateTransitionStepConfig {
                 transactionManager,
                 missingLogReader,
                 missingLogProcessor,
-                verificationResultWriter
+                verificationResultWriter,
+                missingLogScanCountListener
         );
     }
 
@@ -122,6 +135,16 @@ public class StateTransitionStepConfig {
                         .formatted(row.id(), row.fromStatus(), row.toStatus())
         );
     }
+    
+    @Bean
+    public VerificationScanCountListener invalidTransitionScanCountListener(
+            JdbcTemplate jdbcTemplate
+    ) {
+        return new VerificationScanCountListener(
+                jdbcTemplate,
+                "SELECT COUNT(*) FROM coupon_state_log"
+        );
+    }
 
     @Bean
     public Step invalidTransitionStep(
@@ -129,7 +152,8 @@ public class StateTransitionStepConfig {
             PlatformTransactionManager transactionManager,
             JdbcPagingItemReader<InvalidTransitionRow> invalidTransitionReader,
             ItemProcessor<InvalidTransitionRow, VerificationViolation> invalidTransitionProcessor,
-            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
+            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter,
+            VerificationScanCountListener  invalidTransitionScanCountListener
     ) {
     	return VerificationStepFactory.chunkStep(
     	        "invalidTransitionStep",
@@ -137,7 +161,8 @@ public class StateTransitionStepConfig {
     	        transactionManager,
     	        invalidTransitionReader,
     	        invalidTransitionProcessor,
-    	        verificationResultWriter
+    	        verificationResultWriter,
+    	        invalidTransitionScanCountListener
     	);
     }
 
@@ -170,6 +195,16 @@ public class StateTransitionStepConfig {
                         .formatted(row.id(), row.fromStatus(), row.toStatus(), row.prevToStatus())
         );
     }
+    
+    @Bean
+    public VerificationScanCountListener brokenChainScanCountListener(
+            JdbcTemplate jdbcTemplate
+    ) {
+        return new VerificationScanCountListener(
+                jdbcTemplate,
+                "SELECT COUNT(*) FROM coupon_state_log"
+        );
+    }
 
     @Bean
     public Step brokenChainStep(
@@ -177,7 +212,8 @@ public class StateTransitionStepConfig {
             PlatformTransactionManager transactionManager,
             JdbcPagingItemReader<BrokenChainRow> brokenChainReader,
             ItemProcessor<BrokenChainRow, VerificationViolation> brokenChainProcessor,
-            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
+            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter,
+            VerificationScanCountListener brokenChainScanCountListener
     ) {
     	return VerificationStepFactory.chunkStep(
     	        "brokenChainStep",
@@ -185,7 +221,8 @@ public class StateTransitionStepConfig {
     	        transactionManager,
     	        brokenChainReader,
     	        brokenChainProcessor,
-    	        verificationResultWriter
+    	        verificationResultWriter,
+    	        brokenChainScanCountListener
     	);
     }
 }

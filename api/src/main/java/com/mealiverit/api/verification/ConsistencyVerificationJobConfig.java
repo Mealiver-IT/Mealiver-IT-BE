@@ -36,7 +36,6 @@ public class ConsistencyVerificationJobConfig {
 	public Job dailyConsistencyVerificationJob(
 	        JobRepository jobRepository,
 	        ConsistencyReportListener consistencyReportListener,
-	        Step stockCheckStep,
 	        Step counterSyncStep,
 	        Step missingLogStep,
 	        Step invalidTransitionStep,
@@ -45,8 +44,7 @@ public class ConsistencyVerificationJobConfig {
 	) {
 	    return new JobBuilder("DailyConsistencyVerificationJob", jobRepository)
 	    		.listener(consistencyReportListener)
-	            .start(stockCheckStep)
-	            .next(counterSyncStep)
+	            .start(counterSyncStep)
 	            .next(missingLogStep)
 	            .next(invalidTransitionStep)
 	            .next(brokenChainStep)

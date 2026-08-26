@@ -1,5 +1,9 @@
 package com.mealiverit.api.coupon.service;
 
+import com.mealiverit.api.common.exception.BusinessException;
+import com.mealiverit.api.common.exception.ErrorCode;
+import com.mealiverit.api.coupon.dto.CouponIssueAdminResponse;
+import com.mealiverit.api.coupon.dto.CouponIssuePageResponse;
 import com.mealiverit.api.coupon.dto.CouponIssueResponse;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
@@ -7,11 +11,15 @@ import com.mealiverit.entity.coupon.CouponStatus;
 import com.mealiverit.entity.coupon.entity.CouponIssue;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import org.hibernate.AssertionFailure;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,6 +64,29 @@ public class CouponIssueService {
         return issues.stream()
                 .map(issue -> CouponIssueResponse.from(issue, campaignNameById.get(issue.getCampaignId())))
                 .toList();
+    }
+
+    private static final int MAX_ADMIN_PAGE_SIZE = 100;
+
+    // 관리자 쿠폰 강제 회수 화면 - 캠페인별 발급 목록 브라우징. 캠페인당 최대 수십만 건까지
+    // 있을 수 있어(예: campaign_id=8은 133,339건) size를 강제로 100건 이하로 캡한다.
+    @Transactional(readOnly = true)
+    public CouponIssuePageResponse listByCampaign(Long campaignId, CouponStatus status, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_ADMIN_PAGE_SIZE),
+                Sort.by(Sort.Direction.DESC, "id"));
+        var result = status != null
+                ? couponIssueRepository.findByCampaignIdAndStatus(campaignId, status, pageable)
+                : couponIssueRepository.findByCampaignId(campaignId, pageable);
+        return CouponIssuePageResponse.from(result.map(CouponIssueAdminResponse::from));
+    }
+
+    // 관리자가 캠페인+유저 조합으로 발급 건 하나를 바로 찾는 용도 (uk_campaign_user 인덱스 활용,
+    // 발급 건이 수십만 건인 캠페인에서도 페이지를 넘기지 않고 바로 회수 대상을 특정할 수 있음)
+    @Transactional(readOnly = true)
+    public CouponIssueAdminResponse findByCampaignAndUser(Long campaignId, Long userId) {
+        return couponIssueRepository.findByCampaignIdAndUserId(campaignId, userId)
+                .map(CouponIssueAdminResponse::from)
+                .orElseThrow(() -> new BusinessException(ErrorCode.COUPON_NOT_FOUND));
     }
 
     //OrderService가 결제완료(POST /api/orders) 처리 중 내부 호출. 별도 public API 없음

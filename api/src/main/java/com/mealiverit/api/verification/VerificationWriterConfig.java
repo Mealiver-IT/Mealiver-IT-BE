@@ -36,6 +36,7 @@ public class VerificationWriterConfig {
                     ps.setString(2, item.checkType());
                     ps.setString(3, item.referenceId());
                     ps.setString(4, item.detail());
+                    ps.setObject(5, item.detectedAt());
                 })
                 .build();
     }

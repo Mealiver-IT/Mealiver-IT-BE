@@ -10,8 +10,9 @@ import org.springframework.batch.infrastructure.item.database.JdbcPagingItemRead
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
-
+import  com.mealiverit.api.verification.VerificationScanCountListener;
 import javax.sql.DataSource;
 import java.util.Map;
 
@@ -63,6 +64,16 @@ public class StockCheckStepConfig {
                         )
         );
     }
+    
+    @Bean
+    public VerificationScanCountListener stockCheckScanCountListener(
+            JdbcTemplate jdbcTemplate
+    ) {
+        return new VerificationScanCountListener(
+                jdbcTemplate,
+                "SELECT COUNT(*) FROM campaign"
+        );
+    }
 
     @Bean
     public Step stockCheckStep(
@@ -70,7 +81,8 @@ public class StockCheckStepConfig {
             PlatformTransactionManager transactionManager,
             JdbcPagingItemReader<StockViolationRow> stockCheckReader,
             ItemProcessor<StockViolationRow, VerificationViolation> stockCheckProcessor,
-            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
+            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter,
+            VerificationScanCountListener stockCheckScanCountListener
     ) {
         return VerificationStepFactory.chunkStep(
                 "stockCheckStep",
@@ -78,7 +90,8 @@ public class StockCheckStepConfig {
                 transactionManager,
                 stockCheckReader,
                 stockCheckProcessor,
-                verificationResultWriter
+                verificationResultWriter,
+                stockCheckScanCountListener
         );
     }
 }

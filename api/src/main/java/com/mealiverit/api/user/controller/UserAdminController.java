@@ -21,4 +21,10 @@ public class UserAdminController {
     public ApiResponse<List<UserResponse>> list() {
         return ApiResponse.success(userAdminService.list());
     }
+
+    // 대시보드 KPI 카드용 - list() 전체 fetch(100만 건 규모에서 수십 초) 없이 총 인원만 가볍게 조회.
+    @GetMapping("/api/admin/users/count")
+    public ApiResponse<Long> count() {
+        return ApiResponse.success(userAdminService.count());
+    }
 }

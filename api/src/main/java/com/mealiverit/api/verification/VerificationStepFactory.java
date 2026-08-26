@@ -25,13 +25,15 @@ public final class VerificationStepFactory {
             PlatformTransactionManager transactionManager,
             ItemReader<I> reader,
             ItemProcessor<I, O> processor,
-            ItemWriter<O> writer
+            ItemWriter<O> writer,
+            VerificationScanCountListener scanCountListener
     ) {
         return new StepBuilder(stepName, jobRepository)
                 .<I, O>chunk(PAGE_SIZE, transactionManager)
                 .reader(reader)
                 .processor(processor)
                 .writer(writer)
+                .listener(scanCountListener)
                 .build();
     }
 }

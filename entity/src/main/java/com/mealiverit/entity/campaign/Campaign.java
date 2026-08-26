@@ -70,6 +70,14 @@ public class Campaign {
     }
 
     public Campaign(String name, int totalStock, MembershipTier minMembershipTier, CampaignType campaignType, LocalDateTime scheduledOpenAt) {
+        this(name, totalStock, minMembershipTier, campaignType, scheduledOpenAt, null);
+    }
+
+    // scheduledCloseAt도 같은 방식으로 closeAt 컬럼에 미리 저장해둔다 - open()이 호출될 때(수동이든
+    // CampaignScheduledOpenBatchJob의 자동 오픈이든) 이 값을 그대로 넘겨줘야 덮어써지지 않고 살아남는다
+    // (2026-08-26 추가: 생성 폼에 마감 예약 시각 필드가 없어서 늘 무기한으로만 열렸던 걸 보완).
+    public Campaign(String name, int totalStock, MembershipTier minMembershipTier, CampaignType campaignType,
+                     LocalDateTime scheduledOpenAt, LocalDateTime scheduledCloseAt) {
         this.name = name;
         this.totalStock = totalStock;
         this.remainingStock = totalStock;
@@ -77,6 +85,7 @@ public class Campaign {
         this.minMembershipTier = minMembershipTier;
         this.campaignType = campaignType;
         this.openAt = scheduledOpenAt;
+        this.closeAt = scheduledCloseAt;
     }
 
     public void open(LocalDateTime openAt, LocalDateTime closeAt) {
