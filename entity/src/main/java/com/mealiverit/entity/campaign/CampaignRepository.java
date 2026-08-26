@@ -53,4 +53,23 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     // CampaignScheduledOpenBatchJob이 자동 오픈 대상(예약 시간이 지난 READY 캠페인)을 찾을 때 사용
     // 새 칼럼 없이 기존 openAt을 "예정 시각"으로 재사용
     List<Campaign> findByStatusAndOpenAtLessThanEqual(CampaignStatus status, LocalDateTime now);
+
+    // StockLossRepairJob이 재고 유실(compensateStockRollback() 자체가 실패하는 경우, HikariCP 풀
+    // 고갈 등) 여부를 찾을 때 사용. sql/verification/b_counter_mismatch.sql과 같은 불변식
+    // (total_stock = 샤드 합계 + 발급 건수)을 검사하되, 캠페인마다 따로 조회하는 대신 불일치하는
+    // 캠페인만 한 번의 집계 쿼리로 가져온다(CampaignStockSnapshotReconciliationJob처럼 캠페인
+    // 수만큼 쿼리를 반복하는 N+1 패턴을 피하기 위함). LEFT JOIN 필수 - INNER JOIN이면 발급
+    // 이력이 0건이거나 샤드가 아직 지연 생성 안 된 캠페인이 통째로 빠진다.
+    @Query(value = "SELECT c.id AS campaignId, c.total_stock AS totalStock, "
+            + "       COALESCE(shard.remaining_stock, c.remaining_stock) AS shardRemaining, "
+            + "       COALESCE(actual.issued_count, 0) AS issuedCount "
+            + "FROM campaign c "
+            + "LEFT JOIN (SELECT campaign_id, SUM(remaining_stock) AS remaining_stock "
+            + "           FROM campaign_stock_shard GROUP BY campaign_id) shard ON shard.campaign_id = c.id "
+            + "LEFT JOIN (SELECT campaign_id, COUNT(*) AS issued_count "
+            + "           FROM coupon_issue GROUP BY campaign_id) actual ON actual.campaign_id = c.id "
+            + "WHERE c.total_stock <> COALESCE(shard.remaining_stock, c.remaining_stock) "
+            + "                       + COALESCE(actual.issued_count, 0)",
+            nativeQuery = true)
+    List<StockMismatchProjection> findStockMismatches();
 }

@@ -1,4 +1,4 @@
-# Phase 11 — 쿠폰 발급 부하테스트
+# Phase 3 — 쿠폰 발급 부하테스트
 
 BE/Infra 체크리스트 항목 두 개를 각 시나리오 폴더 안의 독립 스크립트로 구현했습니다.
 
@@ -9,8 +9,7 @@ BE/Infra 체크리스트 항목 두 개를 각 시나리오 폴더 안의 독립
 켜서 따로 실행**하는 쪽으로 굳어지면서 아예 시나리오별 독립 파일로 쪼갰습니다. 초기에는
 두 시나리오를 동시에 켜서 한 번에 돌려본 적도 있었는데, 실패 원인이 race 때문인지
 retry_mix 때문인지 구분이 안 돼서 분리 실행으로 정리했습니다 (자세한 경위는
-[`RESULTS.md`](RESULTS.md) 참고). `run-round.sh`/`run-round.ps1`도 `RACE_VUS`/`RETRY_USERS`
-둘 다 0보다 크게 주면 바로 에러를 내도록 되어 있습니다.
+[`RESULTS.md`](RESULTS.md) 참고).
 
 ## 시나리오 상세
 
@@ -27,62 +26,47 @@ retry_mix 때문인지 구분이 안 돼서 분리 실행으로 정리했습니�
 확인하는 지표입니다. (지금 스텁 서버는 상태가 없는 랜덤 응답이라 이 지표 자체보다는
 스크립트/문법 검증용으로 먼저 보시면 됩니다.)
 
-## 실행 방법
-
-### 방법 A — 회차별로 자동 정리 (권장)
-
-Windows / PowerShell:
-```powershell
-cd phase11
-./run-round.ps1 -Round "race-10k" -RaceVus 10000                    # race만
-./run-round.ps1 -Round "retry-5k" -RaceVus 0 -RetryUsers 5000       # retry_mix만
-```
-
-Git Bash / macOS / Linux:
-```bash
-cd phase11
-./run-round.sh race-10k 10000                                    # race만
-RACE_VUS=0 RETRY_USERS=5000 ./run-round.sh retry-5k 0             # retry_mix만
-```
-
-**회차 폴더는 시나리오별로 정확히 둘 중 하나에만 들어갑니다** — `race/` 또는
-`retry_mix/`, 그 외 폴더는 없습니다. 각 폴더 안은 phase3 `campaign_*` 폴더와 같은
-방식으로 `logs/`/`dashboards/` 둘로만 나뉘고, 회차 이름이 파일명이 됩니다.
+## 폴더 구조
 
 ```
-phase11/
-  decode-dashboard.js        # dashboard.html에서 10초 간격 시계열 뽑는 공용 유틸
+phase3/
   race/
-    race.js                   # race 시나리오 스크립트 (독립 실행형)
-    logs/
-      <round>.log             # k6 콘솔 출력 전체 로그
-      <round>.summary.json    # --summary-export 결과 (수치 비교용)
-    dashboards/
-      <round>.html            # k6 웹 대시보드 export (그래프 포함, 브라우저로 열어서 확인)
+    race.js                    # race 시나리오 스크립트 (독립 실행형)
   retry_mix/
-    retry_mix.js               # retry_mix 시나리오 스크립트 (독립 실행형)
-    logs/  ...
-    dashboards/  ...
+    retry_mix.js                # retry_mix 시나리오 스크립트 (독립 실행형)
   concurrent_duplicate/
-    concurrent_duplicate.js    # concurrent_duplicate 시나리오 스크립트
-    logs/  ...
-    dashboards/  ...
+    concurrent_duplicate.js     # concurrent_duplicate 시나리오 스크립트
 ```
 
 각 시나리오 스크립트는 서로 독립적입니다 (예전엔 `race`/`retry_mix`가 한 파일을 공유했는데,
 시나리오 폴더 안에 그 시나리오가 쓰는 스크립트가 바로 보이는 게 낫다는 판단으로 쪼갰습니다
-— 공통 헬퍼 코드는 약간 중복되지만 폴더 하나만 보면 실행/결과가 전부 완결됩니다).
+— 공통 헬퍼 코드는 약간 중복되지만 폴더 하나만 보면 실행이 완결됩니다).
+
+실행 결과(로그/summary/대시보드 html)는 저장소에 커밋하지 않았습니다 — 실행할 때마다
+새로 생기는 산출물이라 용량만 커지고 리뷰에 도움이 안 된다는 피드백을 반영했습니다
+(`.gitignore` 처리). 실제로 실행해서 나온 수치 요약은 각 시나리오 README의 "결과" 절에
+남겨뒀습니다.
 
 시나리오별 결과는 각 폴더의 README를 보세요 ([`race/README.md`](race/README.md),
 [`retry_mix/README.md`](retry_mix/README.md),
 [`concurrent_duplicate/README.md`](concurrent_duplicate/README.md)).
 
-### 방법 B — 직접 실행
+## 실행 방법
 
 ```bash
 k6 run -e RACE_VUS=10000 race/race.js
 k6 run -e RACE_VUS=20000 race/race.js
 k6 run -e RETRY_USERS=5000 retry_mix/retry_mix.js
+k6 run -e USER_COUNT=5000 -e RETRIES_PER_USER=4 concurrent_duplicate/concurrent_duplicate.js
+```
+
+회차별 로그/summary/대시보드를 자동으로 정리해서 저장하고 싶다면, 아래처럼 직접
+`--summary-export`/`K6_WEB_DASHBOARD_EXPORT`를 지정하면 됩니다:
+
+```bash
+K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=race/dashboards/<round>.html \
+  k6 run --summary-export=race/logs/<round>.summary.json \
+  -e RACE_VUS=10000 race/race.js > race/logs/<round>.log 2>&1
 ```
 
 ## 사전 준비
@@ -125,8 +109,8 @@ retry_mix 때문인지 안 갈리는 문제가 있었고, 이후로는 항상 �
 - **[`race/README.md`](race/README.md)** — 10,000 vs 20,000 동시요청 결과 (체크리스트 항목)
 - **[`retry_mix/README.md`](retry_mix/README.md)** — 동일 유저 5,000명×4회 재요청 결과 (체크리스트 항목)
 - **[`concurrent_duplicate/README.md`](concurrent_duplicate/README.md)** — 동일 유저 5,000명이
-  **backoff 없이 진짜 동시에** 4번씩 중복 요청 (체크리스트 항목은 아니고, phase3가 찾아낸
-  "중복요청 락 증폭 버그" 수정이 지금도 안전한지 확인하는 보너스 회귀 테스트)
+  **backoff 없이 진짜 동시에** 4번씩 중복 요청 (체크리스트 항목은 아니고, 이전 실행에서
+  찾아낸 "중복요청 락 증폭 버그" 수정이 지금도 안전한지 확인하는 보너스 회귀 테스트)
 
 ## API_MODE (stub vs real)
 
@@ -148,6 +132,33 @@ retry_mix 때문인지 안 갈리는 문제가 있었고, 이후로는 항상 �
 3. 소규모(수백 VU)로 먼저 돌려서 계약이 맞게 동작하는지, 재고 소모량이 기대치와 맞는지 확인.
 4. 본 실행 후에는 `PATCH .../status {status:"CLOSED"}`로 테스트 캠페인을 닫아 정리.
 
+## 다른 캠페인 지정해서 실행하기
+
+**스크립트 파일은 전혀 안 건드립니다.** `CAMPAIGN_ID`가 코드에 하드코딩되어 있지 않고
+`__ENV.CAMPAIGN_ID`로 읽어오게 되어 있어서, 실행할 때 넘기는 값만 바꾸면 원하는 아무
+캠페인이나 대상으로 삼을 수 있습니다.
+
+```bash
+k6 run -e API_MODE=real -e CAMPAIGN_ID=원하는아이디 -e USER_ID_BASE=안쓴범위 \
+  -e RACE_VUS=10000 race/race.js
+```
+
+**단, 기존(특히 실제 운영 중이거나 팀이 같이 보는) 캠페인을 대상으로 하면:**
+- 그 캠페인의 **진짜 재고가 실제로 소모**됩니다 — 되돌리는 API가 없습니다.
+- 다른 데모/테스트/실제 유저 데이터와 결과가 섞입니다.
+
+그래서 이 문서의 모든 회차는 항상 **테스트 전용 캠페인을 새로 만들어서** (`POST
+/api/campaigns` → `PATCH /status {status:"OPEN"}`) 그 위에서만 실행했습니다. 기존
+캠페인을 지정해서 돌리고 싶다면, 그게 지금 실제로 쓰이는 중인 캠페인은 아닌지 먼저
+확인하는 걸 권장합니다.
+
 ## 참고
 
-- 이 문서/스크립트는 원래 저장소 루트의 `phase3` 폴더와는 무관하게 독립적으로 작성됐습니다. 다만 이후 결과를 정리하며 비교해보니(`RESULTS.md` 참고) 같은 결론(초과발급 0건)에 도달했고, retry_mix가 phase3 쪽에서 발견/수정된 "동시 중복요청 락 증폭 버그"를 재현 안 하는 이유(1초 backoff로 레이스 컨디션 자체가 안 생김)도 확인했습니다.
+- 이 작업은 **이전 phase3 부하테스트를 다시 검증하기 위해 만든 것**입니다. 원래 초기
+  실행 이력(별도 작업 폴더의 `campaign_299`/`campaign_300`)이 있었는데, 회차 사이에
+  실행 환경 자체가 바뀌는 등(예: 새 PC에 WSL2를 새로 설치하고 실행, 물리 환경이 이전
+  회차들과 달라짐) 결과를 서로 비교하기 애매한 부분이 있었습니다. 그래서 환경을
+  통제한 상태로 같은 시나리오를 다시 돌려서 비교/재검증한 결과가 지금 이 폴더입니다.
+- 실제로 결과를 정리하며 비교해보니(`RESULTS.md` 참고) 같은 결론(초과발급 0건)에
+  도달했고, retry_mix가 이전 실행에서 발견/수정된 "동시 중복요청 락 증폭 버그"를
+  재현 안 하는 이유(1초 backoff로 레이스 컨디션 자체가 안 생김)도 확인했습니다.

@@ -16,35 +16,36 @@
 
 ## 실행 방법
 
-`retry_mix`와 절대 같이 켜지 않습니다 (`RETRY_USERS=0`이 기본값이라 따로 안 건드려도 됨).
+`retry_mix.js`와는 별개 파일입니다 — 원인 분리를 위해 항상 하나씩만 돌리는 걸 권장합니다.
 
 ```bash
 # 로컬 스텁 서버
-./run-round.sh race-10k 10000
-./run-round.sh race-20k 20000
+k6 run -e RACE_VUS=10000 race.js
+k6 run -e RACE_VUS=20000 race.js
 
 # 실제 API (사전에 테스트 전용 캠페인 만들고 OPEN 상태로)
-API_MODE=real CAMPAIGN_ID=<campaignId> USER_ID_BASE=<안 쓴 범위> \
-  ./run-round.sh <round-label> <race-vus> http://<서버>:8080
+k6 run -e API_MODE=real -e CAMPAIGN_ID=<campaignId> -e USER_ID_BASE=<안 쓴 범위> \
+  -e RACE_VUS=<race-vus> -e BASE_URL=http://<서버>:8080 race.js
 ```
 
-결과는 자동으로 `race/logs/<round>.log` + `.summary.json`, `race/dashboards/<round>.html`에 저장됩니다.
+결과(로그/summary/대시보드 html)는 저장소에 커밋하지 않았습니다 (실행할 때마다 새로
+생기는 산출물이라 — 아래 결과는 실제로 실행해서 나온 수치를 요약해둔 것입니다).
 
 ## 지금까지 결과
 
 **원칙**: k6 자체 집계만 믿지 않고 서버 쪽 실제 값으로도 재검증합니다 (retry_mix 쪽에서
 겪은 client 요약과 서버 실제 상태가 어긋난 사례 때문 — [`../retry_mix/README.md`](../retry_mix/README.md) 참고).
 
-| 회차 | 대상 | 재고 | 요청 | k6 발급 성공 | k6 409 SOLD_OUT | 기타 | **서버 재검증 (issuedCount/remainingStock)** | 시계열 |
-|---|---|---|---|---|---|---|---|---|
-| `archive_race-10kstock-20kreq-attempt1` | 실제 API | 10,000 | 20,000 | (설정 실수 — RETRY_USERS가 완전히 0이 아니어서 retry 요청 3건 섞임, 재실행함) | | | 검증 안 함 | — |
-| **`race-10kstock-20kreq`** | 실제 API (campaign 328) | 10,000 | 20,000 | **10,000** | **10,000** | 0 | **10,000 / 0** — `totalStock`과 정확히 일치 (사후 재조회로 확인) | [timeline](logs/race-10kstock-20kreq.timeline.md) |
+| 회차 | 대상 | 재고 | 요청 | k6 발급 성공 | k6 409 SOLD_OUT | 기타 | **서버 재검증 (issuedCount/remainingStock)** |
+|---|---|---|---|---|---|---|---|
+| `race-10kstock-20kreq-attempt1` | 실제 API | 10,000 | 20,000 | (설정 실수 — RETRY_USERS가 완전히 0이 아니어서 retry 요청 3건 섞임, 재실행함) | | | 검증 안 함 |
+| **`race-10kstock-20kreq`** | 실제 API (campaign 328) | 10,000 | 20,000 | **10,000** | **10,000** | 0 | **10,000 / 0** — `totalStock`과 정확히 일치 (사후 재조회로 확인) |
 
 정확히 재고만큼(10,000/10,000) 발급되고 나머지는 전부 정상적으로 `409 SOLD_OUT`. 초과발급
 0건, 클라이언트/서버 쪽 진짜 에러도 0건 — race 시나리오는 단독으로 완벽하게 동작합니다.
-[timeline](logs/race-10kstock-20kreq.timeline.md)을 보면 시간이 지날수록(락 경합 누적)
-p95 응답시간이 5.6초→13.8초→19.5초→23.5초로 계속 늘어나는 걸 볼 수 있습니다 — 재고
-자체는 정확히 지켜지지만 응답 지연은 뒤로 갈수록 악화되는 패턴입니다.
+실행 중 시간대별로 보면(원본 대시보드 데이터 기준) p95 응답시간이 5.6초→13.8초→19.5초→
+23.5초로 계속 늘어나는 걸 확인했습니다 — 재고 자체는 정확히 지켜지지만 응답 지연은
+뒤로 갈수록 악화되는 패턴입니다.
 
 (같은 시나리오를 retry_mix와 동시에 20,000 VU 규모로 돌렸을 때는 로컬 TCP 포트 고갈로
 실패율이 높게 나온 적이 있는데, 그건 race 자체 문제가 아니라 클라이언트 환경 문제였다는
