@@ -8,6 +8,7 @@ import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.entity.campaign.CampaignType;
 import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
@@ -46,7 +47,8 @@ public class CampaignAdminService {
     @Transactional
     public CampaignResponse create(CampaignCreateRequest request) {
         Campaign campaign = campaignRepository.save(
-                new Campaign(request.name(), request.totalStock(), request.minMembershipTier(), request.scheduledOpenAt()));
+                new Campaign(request.name(), request.totalStock(), request.minMembershipTier(),
+                        CampaignType.FCFS, request.scheduledOpenAt(), request.scheduledCloseAt()));
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), request.discountType(),
                 request.discountValue(), request.minOrderAmount(), request.maxDiscountAmount(),
                 request.validHours()));
@@ -93,8 +95,10 @@ public class CampaignAdminService {
     public CampaignResponse updateStatus(Long campaignId, CampaignStatusUpdateRequest request) {
         Campaign campaign = findCampaignOrThrow(campaignId);
         switch (request.status()) {
+            // closeAt을 요청에서 안 주면(FE의 "지금 수동 오픈" 버튼처럼) 생성 시점에 미리 예약해둔
+            // closeAt(scheduledCloseAt)을 덮어쓰지 않고 그대로 유지한다.
             case OPEN -> campaign.open(request.openAt() != null ? request.openAt() : LocalDateTime.now(),
-                    request.closeAt());
+                    request.closeAt() != null ? request.closeAt() : campaign.getCloseAt());
             case CLOSED -> campaign.close();
             case READY -> throw new BusinessException(ErrorCode.CAMPAIGN_INVALID_STATE_TRANSITION);
         }
