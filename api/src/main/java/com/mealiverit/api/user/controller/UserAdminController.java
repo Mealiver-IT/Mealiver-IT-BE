@@ -4,6 +4,7 @@ import com.mealiverit.api.common.response.ApiResponse;
 import com.mealiverit.api.user.dto.UserResponse;
 import com.mealiverit.api.user.service.UserAdminService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -26,5 +27,16 @@ public class UserAdminController {
     @GetMapping("/api/admin/users/count")
     public ApiResponse<Long> count() {
         return ApiResponse.success(userAdminService.count());
+    }
+
+    // 유저 목록 화면 검색 - list()(전체 fetch, 100만 건 규모에서 수십 초) 대체용.
+    // 세 필터 다 비우면 빈 배열(검색 안 함).
+    @GetMapping("/api/admin/users/search")
+    public ApiResponse<List<UserResponse>> search(
+            @RequestParam(required = false, defaultValue = "") String id,
+            @RequestParam(required = false, defaultValue = "") String loginId,
+            @RequestParam(required = false, defaultValue = "") String name
+    ) {
+        return ApiResponse.success(userAdminService.search(id, loginId, name));
     }
 }
