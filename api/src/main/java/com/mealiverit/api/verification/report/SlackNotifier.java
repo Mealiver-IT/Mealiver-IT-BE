@@ -17,8 +17,11 @@ public class SlackNotifier {
     @Value("${slack.consistency-webhook-url}")
     private String webhookUrl;
 
-    public void send(ConsistencyReport report) {
-        Map<String, Object> payload = Map.of("blocks", buildBlocks(report));
+    public void send(
+    		ConsistencyReport report,
+    		String reportUrl
+    		) {
+        Map<String, Object> payload = Map.of("blocks", buildBlocks(report, reportUrl));
 
         restClient.post()
             .uri(webhookUrl)
@@ -28,7 +31,10 @@ public class SlackNotifier {
             .toBodilessEntity();
     }
 
-    private List<Map<String, Object>> buildBlocks(ConsistencyReport report) {
+    private List<Map<String, Object>> buildBlocks(
+    		ConsistencyReport report,
+    		String reportUrl
+    		) {
         String statusEmoji = report.hasAnomalies() ? ":warning: 이상값 발견" : ":white_check_mark: 정상";
 
         List<Map<String, Object>> blocks = new ArrayList<>();
@@ -44,6 +50,7 @@ public class SlackNotifier {
                 "text", statusEmoji + "\n*실행 시각*: " + report.startTime())
         ));
 
+        
         report.anomalyCounts().forEach((checkType, count) ->
             blocks.add(Map.of(
                 "type", "section",
@@ -51,6 +58,23 @@ public class SlackNotifier {
                     "text", String.format("`%s` %s: *%d건*", checkType.name(), checkType.label(), count))
             ))
         );
+        
+        blocks.add(Map.of(
+                "type", "actions",
+                "elements", List.of(
+                        Map.of(
+                                "type", "button",
+                                "text", Map.of(
+                                        "type",
+                                        "plain_text",
+                                        "text",
+                                        "📊 상세 리포트 보기"
+                                ),
+                                "url",
+                                reportUrl
+                        )
+                )
+        ));
 
         if (!report.failedSteps().isEmpty()) {
             blocks.add(Map.of(
