@@ -30,8 +30,9 @@ k6 run -e BASE_URL=http://<서버>:8080 -e CAMPAIGN_ID=<campaignId> \
   concurrent_duplicate.js
 ```
 
-결과 저장은 수동으로 (`run-round.sh`에는 안 묶어뒀음 — 이 스크립트는 회귀 확인용 1회성
-성격이라 필요시 아래 예시처럼 직접 `--summary-export`/`K6_WEB_DASHBOARD_EXPORT` 지정).
+결과(로그/summary/대시보드 html)를 회차별로 저장하고 싶으면 아래처럼 직접
+`--summary-export`/`K6_WEB_DASHBOARD_EXPORT`를 지정하면 됩니다 (`logs/`, `dashboards/`는
+실행할 때마다 새로 생기는 산출물이라 저장소에는 커밋하지 않았습니다).
 `concurrent_duplicate/` 폴더 안에서 실행하는 기준입니다:
 
 ```bash
@@ -57,7 +58,6 @@ K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT=dashboards/<round>.html \
 | http_req_duration avg / p95 / max | 4.3s / 7.6s / 11.6s | 4.3s / 7.4s / 13.3s | 3.2s / 6.3s / 45.6s* | **18.8s / 26.7s / 30.0s**† |
 | **서버 재검증 (issuedCount / remainingStock)** | **5,000 / 5,000** | **5,000 / 5,000** | **5,000 / 5,000** | **5,000 / 5,000** |
 | 20,000건 처리 완료 시점 | ~30s | ~30s | ~30s(+1건 70s) | **~50s** |
-| 시계열 | [timeline](logs/concurrent-dup-5kx4-run1.timeline.md) | [timeline](logs/concurrent-dup-5kx4-run2.timeline.md) | [timeline](logs/concurrent-dup-5kx4-run3.timeline.md) | [timeline](logs/concurrent-dup-5kx4-run4.timeline.md) |
 
 \* run3의 45.6s는 20,000건 중 딱 1건(스트래글러)이 70초 지점에 늦게 완료된 것 — 나머지
 19,999건은 전부 30초 안에 끝났고, 그 1건도 결국 정상 처리됨(실패 아님).
