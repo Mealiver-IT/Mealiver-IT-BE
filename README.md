@@ -212,7 +212,7 @@ public enum CouponStatus {
 |---|---|
 | `ISSUED` | 발급 직후의 기본 상태. 사용 가능한 쿠폰(발급 API 성공 시의 최초 상태이자, 아래 `USED → ISSUED`로 복귀했을 때의 상태이기도 함) |
 | `USED` | 주문에 쿠폰을 적용해 결제가 완료된 상태 (`OrderService`가 결제완료 처리 중 `markUsed` 호출) |
-| `CANCELED` | **종단 상태.** 관리자가 강제로 회수한 상태(`CouponController`의 관리자 revoke API). 사용 여부와 무관하게 `ISSUED`/`USED` 둘 다에서 전이 가능하며, 이후 어떤 상태로도 전이 불가 |
+| `CANCELED` | **종단 상태.** 관리자가 강제로 회수한 상태(`CouponController`의 관리자 revoke API). `ISSUED`에서만 전이 가능 — 이미 사용된(USED) 쿠폰은 회수 대상이 아님. 이후 어떤 상태로도 전이 불가 |
 | `EXPIRED` | **종단 상태.** 유효기간(`valid_until`)이 지나 `CouponExpirationBatchJob`이 자동으로 처리한 상태. 이후 어떤 상태로도 전이 불가 |
 
 **전이별 의미**
@@ -220,8 +220,8 @@ public enum CouponStatus {
 - `ISSUED → USED` : 사용자가 결제 시 쿠폰을 적용
 - `ISSUED → CANCELED` : 아직 안 쓴 쿠폰을 관리자가 강제 회수
 - `ISSUED → EXPIRED` : 유효기간이 지나도록 안 쓴 쿠폰을 만료 배치가 자동 처리
-- `USED → CANCELED` : 이미 사용한 쿠폰도 관리자가 강제 회수 가능(사용 여부와 무관하게 회수 권한은 유지)
 - `USED → ISSUED` : 쿠폰이 적용된 주문을 취소하면, 본인이 그 쿠폰을 다시 쓸 수 있도록 `ISSUED`로 복귀시킨다 (`OrderService`의 주문취소 처리 중 `markReturnedToIssued` 호출)
+- `USED → CANCELED` : **의도적으로 불허.** 이미 결제가 완료돼 할인이 적용된 주문이 존재하므로, 관리자가 사용된 쿠폰을 강제로 회수할 수 없음
 - `USED → EXPIRED` : **의도적으로 불허.** `ISSUED`로 복귀시킨 뒤 유효기간이 지났으면 만료 배치가 알아서 처리하므로, `USED`에서 직접 `EXPIRED`로 보내는 별도 경로는 불필요
 
 **상태전이 API** (`CouponIssueService.markUsed/markCanceled/markReturnedToIssued`):
@@ -230,6 +230,12 @@ public enum CouponStatus {
 - `markReturnedToIssued` — `OrderService`가 주문취소(`PATCH /api/orders/{id}/cancel`) 처리 중 내부 호출
 - `markCanceled` — `CouponController`의 관리자 강제회수(`POST /api/admin/coupons/{issueId}/revoke`)에서 호출
 - 동시 상태전이 요청은 `@Version`(낙관적 락) + `@Retryable(retryFor = {ConcurrencyFailureException, DataIntegrityViolationException, AssertionFailure}, maxAttempts = 3)`로 지수 백오프 재시도
+
+**조회 API별 노출 범위**
+
+- `GET /api/members/me/coupons` : 결제 페이지 토글용, `ISSUED`만 반환 (k6 부하테스트 실측 검증에도 쓰이고 있어 응답 범위 고정)
+- `GET /api/members/me/coupons/all` : 내 쿠폰함 전체 조회. `ISSUED` + `USED`/`CANCELED`/`EXPIRED`(각각 `usedAt`/`canceledAt`/`expiredAt` 기준 3일 이내)를 반환
+- 3일 노출 규칙은 `CouponStatus`의 실제 상태 전이가 아니다 — 별도 컬럼/배치 없이 `CouponIssueRepository.findVisibleCouponsForUser` 조회 쿼리에서 파생 계산으로 처리
 
 ---
 
