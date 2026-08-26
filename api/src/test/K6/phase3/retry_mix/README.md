@@ -23,18 +23,20 @@
 
 ## 실행 방법
 
-`race`와 절대 같이 켜지 않습니다 (`RACE_VUS=0`으로 지정).
+`race.js`와는 별개 파일이라 같이 실행할 일 자체가 없습니다 (원하면 다른 터미널에서
+동시에 돌릴 순 있지만, 원인 분리를 위해 항상 하나씩만 돌리는 걸 권장합니다).
 
 ```bash
 # 로컬 스텁 서버
-RACE_VUS=0 RETRY_USERS=5000 ./run-round.sh retry-5k 0
+k6 run -e RETRY_USERS=5000 retry_mix.js
 
 # 실제 API (사전에 테스트 전용 캠페인 만들고 OPEN 상태로, 재고는 5,000 이상 권장)
-API_MODE=real CAMPAIGN_ID=<campaignId> USER_ID_BASE=<안 쓴 범위> \
-  RACE_VUS=0 RETRY_USERS=5000 ./run-round.sh <round-label> 0 http://<서버>:8080
+k6 run -e API_MODE=real -e CAMPAIGN_ID=<campaignId> -e USER_ID_BASE=<안 쓴 범위> \
+  -e RETRY_USERS=5000 -e BASE_URL=http://<서버>:8080 retry_mix.js
 ```
 
-결과는 자동으로 `retry_mix/logs/<round>.log` + `.summary.json`, `retry_mix/dashboards/<round>.html`에 저장됩니다.
+결과(로그/summary/대시보드 html)는 저장소에 커밋하지 않았습니다 (실행할 때마다 새로
+생기는 산출물이라 — 아래 결과는 실제로 실행해서 나온 수치를 요약해둔 것입니다).
 
 ## 지금까지 결과 (재고 5,000 vs 5,000명 × 4회, 실제 API)
 
@@ -43,13 +45,13 @@ API_MODE=real CAMPAIGN_ID=<campaignId> USER_ID_BASE=<안 쓴 범위> \
 으로 재검증**했습니다. k6가 응답을 받았다고 "성공"으로 집계해도 실제 DB에 반영 안 됐을
 수 있다는 걸 run4에서 직접 겪었기 때문입니다 (아래 run4 항목 참고).
 
-| 회차 | 캠페인 | k6 발급 성공 | k6 409 | `retry_duplicate_issue_rate` | p95 | **서버 재검증 (issuedCount / remainingStock)** | 시계열 |
-|---|---|---|---|---|---|---|---|
-| `archive_my-run1` | 332 | 20,000/20,000 | 0 | 0.00% | — | 검증 안 함 (당시엔 이 원칙이 없었음) | — |
-| `retry-5kx4-run1` | 329 | 20,000/20,000 | 0 | **0.00%** | 1.74s | **5,000 / 0** — `totalStock`과 정확히 일치, 유저 3명 샘플링 전부 1개 | [timeline](logs/retry-5kx4-run1.timeline.md) |
-| `retry-5kx4-run2` | 330 | 20,000/20,000 | 0 | **0.00%** | 1.76s | **5,000 / 0** — 일치, 유저 3명 샘플링 전부 1개 | [timeline](logs/retry-5kx4-run2.timeline.md) |
-| `retry-5kx4-run3` | 331 | 20,000/20,000 | 0 | **0.00%** | 1.72s | **5,000 / 0** — 일치, 유저 3명 샘플링 전부 1개 | [timeline](logs/retry-5kx4-run3.timeline.md) |
-| `retry-5kx4-run4` | 466 | (k6 summary 없음, 아래 참고) | | | | **5,000 / 0** — 일치, 유저 8명 샘플링 전부 1개 | (dashboard.html 미생성 — 아래 참고) |
+| 회차 | 캠페인 | k6 발급 성공 | k6 409 | `retry_duplicate_issue_rate` | p95 | **서버 재검증 (issuedCount / remainingStock)** |
+|---|---|---|---|---|---|---|
+| `my-run1` | 332 | 20,000/20,000 | 0 | 0.00% | — | 검증 안 함 (당시엔 이 원칙이 없었음) |
+| `retry-5kx4-run1` | 329 | 20,000/20,000 | 0 | **0.00%** | 1.74s | **5,000 / 0** — `totalStock`과 정확히 일치, 유저 3명 샘플링 전부 1개 |
+| `retry-5kx4-run2` | 330 | 20,000/20,000 | 0 | **0.00%** | 1.76s | **5,000 / 0** — 일치, 유저 3명 샘플링 전부 1개 |
+| `retry-5kx4-run3` | 331 | 20,000/20,000 | 0 | **0.00%** | 1.72s | **5,000 / 0** — 일치, 유저 3명 샘플링 전부 1개 |
+| `retry-5kx4-run4` | 466 | (k6 summary 없음, 아래 참고) | | | | **5,000 / 0** — 일치, 유저 8명 샘플링 전부 1개 |
 
 run1~3의 서버 재검증은 **사후에(이 피드백을 받고 나서) 다시 조회**한 것입니다 — 캠페인이
 `CLOSED` 상태여도 `GET /api/campaigns/{id}/stock`, `GET /api/admin/campaigns/{id}/stats`,

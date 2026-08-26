@@ -1,0 +1,8 @@
+# 실행할 때마다 새로 생기는 산출물 (로그/summary/대시보드 html) - 리뷰 대상 아님.
+# 실제로 실행해서 나온 수치 요약은 각 시나리오 README의 "결과" 절에 있음.
+race/logs/
+race/dashboards/
+retry_mix/logs/
+retry_mix/dashboards/
+concurrent_duplicate/logs/
+concurrent_duplicate/dashboards/
