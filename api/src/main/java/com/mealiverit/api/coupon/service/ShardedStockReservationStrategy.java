@@ -147,6 +147,13 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
             if (!shardRepository.existsByCampaignId(campaignId)) {
                 Campaign campaign = campaignRepository.findById(campaignId).orElse(null);
                 if (campaign != null) {
+                    // 2026-08-26 진단 로깅 추가: 캠페인 생성 시점 이벤트 리스너(eager)와
+                    // reserve()/rollback()의 지연 생성 폴백이 이론상 경쟁할 수 있는 지점이라,
+                    // 실제로 이 분기를 몇 번, 어떤 값으로 타는지 남겨서 부하테스트 담당자가
+                    // 리포트한 "재고가 나중에 totalStock으로 원복됨" 현상의 원인 후보(중복 생성)를
+                    // 확인할 수 있게 한다.
+                    log.info("재고 샤드 생성: campaignId={}, totalToDistribute={}",
+                            campaignId, campaign.getRemainingStock());
                     createShards(campaignId, campaign.getRemainingStock());
                 }
             }
