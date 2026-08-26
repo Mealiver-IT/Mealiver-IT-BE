@@ -53,15 +53,13 @@ public class CouponIssueTest {
         assertThat(issue.getExpiredAt()).isEqualTo(expiredAt);
     }
 
-    //사용된 (USED) 쿠폰도 환불 시나리오로 CANCELED 전이가 되는지 확인
+    //USED 쿠폰은 이미 할인이 적용된 주문이 있어 관리자 강제 회수 대상에서 제외
     @Test
-    void used_markCanceled_transitionsToCanceled_refund() {
+    void used_markCanceled_throwsInvalidStateTransition() {
         CouponIssue issue = newIssueCoupon();
         issue.markUsed();
 
-        issue.markCanceled();
-
-        assertThat(issue.getStatus()).isEqualTo(CouponStatus.CANCELED);
+        assertThatThrownBy(issue::markCanceled).isInstanceOf(InvalidStateTransitionException.class);
     }
 
     //이미 USED인 쿠폰에 markUsed()를 또 호출하면 예외가 터지는지 확인 (중복 사용 방지)

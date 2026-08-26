@@ -13,6 +13,7 @@ import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -39,6 +40,19 @@ public class CouponIssueService {
         Map<Long, String> campaignNameById = campaignRepository.findAllById(campaignIds).stream()
                 .collect(Collectors.toMap(Campaign::getId, Campaign::getName));
 
+        return issues.stream()
+                .map(issue -> CouponIssueResponse.from(issue, campaignNameById.get(issue.getCampaignId())))
+                .toList();
+    }
+
+    // 내 쿠폰함 전체 조회 - 사용가능/사용함/회수됨/만료됨 모두 포함, 종료 상태는 3일 유예 규칙 적용
+    // cutoff를 여기서 계산해 리포지토리로 넘김
+    public List<CouponIssueResponse> getAllVisibleCoupons(Long userId) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
+        List<CouponIssue> issues = couponIssueRepository.findVisibleCouponsForUser(userId, cutoff);
+        List<Long> campaignIds = issues.stream().map(CouponIssue::getCampaignId).distinct().toList();
+        Map<Long, String> campaignNameById = campaignRepository.findAllById(campaignIds).stream()
+                .collect(Collectors.toMap(Campaign::getId, Campaign::getName));
         return issues.stream()
                 .map(issue -> CouponIssueResponse.from(issue, campaignNameById.get(issue.getCampaignId())))
                 .toList();
