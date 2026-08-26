@@ -2,6 +2,7 @@ package com.mealiverit.api.campaign.service;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.dto.*;
+import com.mealiverit.api.campaign.event.CampaignCreatedEvent;
 import com.mealiverit.api.campaign.event.CampaignStatusChangedEvent;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
@@ -44,6 +45,15 @@ public class CampaignAdminService {
         this.eventPublisher = eventPublisher;
     }
 
+    // 2026-08-26: 재고 샤드는 원래 이 캠페인의 첫 reserve()/rollback() 호출 시점에 지연 생성됐다
+    // (ShardedStockReservationStrategy.ensureShardsExist 참고) - 샤딩 도입 이전부터 있던 캠페인도
+    // 별도 백필 없이 자동으로 채워지게 하려는 이유였는데, 신규 캠페인은 생성 시점에 totalStock이
+    // 이미 확정돼 있고(생성 후 수정 API도 없음) 그 마이그레이션 배경이 더 이상 해당 없다. 그래서
+    // 생성 성공 시 이 이벤트를 발행해 커밋 직후 바로 샤드를 만든다(CampaignShardInitListener) -
+    // 오픈 직후 첫 폭주 트래픽이 "누가 최초로 샤드를 만드는가"를 두고 경쟁할 일 자체가 없어진다.
+    // ensureShardsExist()는 멱등이라 이 이벤트가 처리되기 전에 실제 reserve()가 먼저 들어와도
+    // (이론상으로만 가능 - OPEN 전환은 별도 관리자 액션/스케줄 잡이 필요해 시간 여유가 있다)
+    // 안전하게 그쪽에서 지연 생성 경로를 그대로 타면 된다.
     @Transactional
     public CampaignResponse create(CampaignCreateRequest request) {
         Campaign campaign = campaignRepository.save(
@@ -52,6 +62,10 @@ public class CampaignAdminService {
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), request.discountType(),
                 request.discountValue(), request.minOrderAmount(), request.maxDiscountAmount(),
                 request.validHours()));
+        // 커밋 성공 시에만 샤드를 만들어야 하므로 이벤트 발행만 하고, 실제 생성은
+        // CampaignShardInitListener(AFTER_COMMIT)에 맡긴다 - create()가 실패해서 롤백되면
+        // 이 이벤트도 자동으로 폐기된다.
+        eventPublisher.publishEvent(new CampaignCreatedEvent(campaign.getId()));
         return CampaignResponse.of(campaign, coupon);
     }
 
