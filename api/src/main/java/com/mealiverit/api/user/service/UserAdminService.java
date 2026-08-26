@@ -24,4 +24,10 @@ public class UserAdminService {
                 .map(UserResponse::of)
                 .toList();
     }
+
+    // 대시보드 KPI용 - list()는 100만 건 규모에서 수십 초가 걸려 총 인원 수만 필요할 땐 이걸 쓴다.
+    @Transactional(readOnly = true)
+    public long count() {
+        return userRepository.count();
+    }
 }

@@ -12,7 +12,6 @@ public class JobCheckTypeResolver {
     private static final Map<String, Set<CheckType>> JOB_CHECK_TYPES = Map.of(
 
             "DailyConsistencyVerificationJob", EnumSet.of(
-                    CheckType.STOCK_OVERISSUE,
                     CheckType.COUNTER_MISMATCH,
                     CheckType.STATE_MISSING_LOG,
                     CheckType.STATE_INVALID_TRANSITION,

@@ -142,7 +142,8 @@ public class NotionReportGenerator {
                         "date", Map.of(
                                 "start", report.startTime() != null
                                         ? report.startTime().format(DATE_FORMATTER)
-                                        : null
+                                        : null,
+                                        "time_zone", "Asia/Seoul"
                         )
                 )
         );
