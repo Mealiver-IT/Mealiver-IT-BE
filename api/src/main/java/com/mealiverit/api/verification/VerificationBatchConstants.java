@@ -6,8 +6,9 @@ public final class VerificationBatchConstants {
     public static final int PAGE_SIZE = 10_000;
 
     public static final String INSERT_VERIFICATION_RESULT_SQL =
-        "INSERT INTO verification_result (job_execution_id, check_type, reference_id, detail) "
-            + "VALUES (?, ?, ?, ?)";
+            "INSERT INTO verification_result " +
+            "(job_execution_id, check_type, reference_id, detail, detected_at) " +
+            "VALUES (?, ?, ?, ?, ?)";
 
     private VerificationBatchConstants() {
     }

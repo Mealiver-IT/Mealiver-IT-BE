@@ -1,4 +1,14 @@
 package com.mealiverit.api.verification;
 
-public record VerificationViolation(String checkType, String referenceId, String detail) {
+import java.time.LocalDateTime;
+
+public record VerificationViolation(
+        String checkType,
+        String referenceId,
+        String detail,
+        LocalDateTime detectedAt
+) {
+    public VerificationViolation(String checkType, String referenceId, String detail) {
+        this(checkType, referenceId, detail, LocalDateTime.now());
+    }
 }
