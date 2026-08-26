@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 
 public record CouponIssueResponse(
         Long id,
+        Long campaignId,
         String couponCode,
         String campaignName,
         DiscountType discountType,
@@ -22,6 +23,7 @@ public record CouponIssueResponse(
     public static CouponIssueResponse from(CouponIssue issue, String campaignName) {
         return new CouponIssueResponse(
                 issue.getId(),
+                issue.getCampaignId(),
                 issue.getCouponCode(),
                 campaignName,
                 issue.getDiscountType(),
