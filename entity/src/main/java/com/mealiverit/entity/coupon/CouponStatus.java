@@ -9,7 +9,7 @@ public enum CouponStatus {
 
     private static final Map<CouponStatus, Set<CouponStatus>> TRANSITIONS = Map.of(
             ISSUED, Set.of(USED, CANCELED, EXPIRED),
-            USED, Set.of(CANCELED, ISSUED),   // CANCELED = 관리자 강제 회수 ISSUED = 주문취소 시 재사용 복귀
+            USED, Set.of(ISSUED),   // 주문 취소 시 재사용 복귀만 허용, 이미 사용된 쿠폰은 관리자 강제 회수 불가
             CANCELED, Set.of(),
             EXPIRED, Set.of()
     );

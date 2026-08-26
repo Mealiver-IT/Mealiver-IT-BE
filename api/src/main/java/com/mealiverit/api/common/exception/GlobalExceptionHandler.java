@@ -4,6 +4,8 @@ import com.mealiverit.api.common.response.ErrorResponse;
 import com.mealiverit.entity.campaign.InvalidCampaignStateTransitionException;
 import com.mealiverit.entity.coupon.InvalidStateTransitionException;
 import com.mealiverit.entity.order.InvalidOrderStateTransitionException;
+import org.hibernate.AssertionFailure;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -69,6 +71,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(OptimisticLockingFailureException e) {
         ErrorCode errorCode = ErrorCode.CAMPAIGN_STATE_CONFLICT;
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ErrorResponse.of(errorCode));
+    }
+
+    // 상태전이 재시도 소진 시 새어나올 수 있는 두 예외 - 원인은 동일한데 IDENTITY 전략 특성상 예외 타입만 다르게 나옴.
+    // 캐치올(500)로 원본 예외 메시지가 그대로 노출되는 것을 막기 위해 명시적으로 409 처리
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        ErrorCode errorCode = ErrorCode.COUPON_STATE_CONFLICT;
+        return ResponseEntity.status(errorCode.getStatus())
+                .body(ErrorResponse.of(errorCode));
+    }
+
+    @ExceptionHandler(AssertionFailure.class)
+    public ResponseEntity<ErrorResponse> handleHibernateAssertionFailure(AssertionFailure e) {
+        ErrorCode errorCode = ErrorCode.COUPON_STATE_CONFLICT;
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode));
     }

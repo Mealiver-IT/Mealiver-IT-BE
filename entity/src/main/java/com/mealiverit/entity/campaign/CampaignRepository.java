@@ -1,6 +1,8 @@
 package com.mealiverit.entity.campaign;
 
 import jakarta.persistence.LockModeType;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -47,4 +49,52 @@ public interface CampaignRepository extends JpaRepository<Campaign, Long> {
     @Modifying
     @Query("UPDATE Campaign c SET c.remainingStock = :value WHERE c.id = :campaignId")
     void setRemainingStock(@Param("campaignId") Long campaignId, @Param("value") int value);
+
+    // CampaignScheduledOpenBatchJob이 자동 오픈 대상(예약 시간이 지난 READY 캠페인)을 찾을 때 사용
+    // 새 칼럼 없이 기존 openAt을 "예정 시각"으로 재사용
+    List<Campaign> findByStatusAndOpenAtLessThanEqual(CampaignStatus status, LocalDateTime now);
+
+    // StockLossRepairJob.repair()(60초 주기)이 재고 유실(compensateStockRollback() 자체가
+    // 실패하는 경우, HikariCP 풀 고갈 등) 여부를 찾을 때 사용. sql/verification/b_counter_mismatch.sql과
+    // 같은 불변식(total_stock = 샤드 합계 + 발급 건수)을 검사하되, 캠페인마다 따로 조회하는 대신
+    // 불일치하는 캠페인만 한 번의 집계 쿼리로 가져온다(CampaignStockSnapshotReconciliationJob처럼
+    // 캠페인 수만큼 쿼리를 반복하는 N+1 패턴을 피하기 위함). LEFT JOIN 필수 - INNER JOIN이면 발급
+    // 이력이 0건이거나 샤드가 아직 지연 생성 안 된 캠페인이 통째로 빠진다.
+    //
+    // 2026-08-26: CLOSED 캠페인은 대상에서 제외한다. 캠페인이 CLOSED로 전환되는 순간
+    // StockLossRepairJob.checkOnClose()가 findStockMismatch()로 그 캠페인만 따로 마지막 검증을
+    // 하므로(CampaignClosedStockCheckListener 참고), 이미 끝난 캠페인을 여기서 계속 반복
+    // 검사하면 아무도 다시 못 받을 재고에 대해 매 60초마다 같은 로그만 반복해서 남기는
+    // 낭비다(이전엔 Slack 알림까지 반복돼서 스팸이 됐던 지점).
+    @Query(value = "SELECT c.id AS campaignId, c.total_stock AS totalStock, "
+            + "       COALESCE(shard.remaining_stock, c.remaining_stock) AS shardRemaining, "
+            + "       COALESCE(actual.issued_count, 0) AS issuedCount "
+            + "FROM campaign c "
+            + "LEFT JOIN (SELECT campaign_id, SUM(remaining_stock) AS remaining_stock "
+            + "           FROM campaign_stock_shard GROUP BY campaign_id) shard ON shard.campaign_id = c.id "
+            + "LEFT JOIN (SELECT campaign_id, COUNT(*) AS issued_count "
+            + "           FROM coupon_issue GROUP BY campaign_id) actual ON actual.campaign_id = c.id "
+            + "WHERE c.status <> 'CLOSED' "
+            + "  AND c.total_stock <> COALESCE(shard.remaining_stock, c.remaining_stock) "
+            + "                       + COALESCE(actual.issued_count, 0)",
+            nativeQuery = true)
+    List<StockMismatchProjection> findStockMismatches();
+
+    // StockLossRepairJob.checkOnClose()가 캠페인이 CLOSED로 전환된 직후 1회 최종 검증할 때 사용.
+    // findStockMismatches()와 같은 불변식이지만, 이미 CLOSED인 그 캠페인 자신을 검사해야 하므로
+    // status 필터 없이 campaignId로만 좁힌다(쿼리 본문이 위와 거의 같아 중복이지만, 네이티브
+    // 쿼리라 Spring Data 리포지토리 메서드끼리 조건절을 공유할 마땅한 방법이 없다).
+    @Query(value = "SELECT c.id AS campaignId, c.total_stock AS totalStock, "
+            + "       COALESCE(shard.remaining_stock, c.remaining_stock) AS shardRemaining, "
+            + "       COALESCE(actual.issued_count, 0) AS issuedCount "
+            + "FROM campaign c "
+            + "LEFT JOIN (SELECT campaign_id, SUM(remaining_stock) AS remaining_stock "
+            + "           FROM campaign_stock_shard GROUP BY campaign_id) shard ON shard.campaign_id = c.id "
+            + "LEFT JOIN (SELECT campaign_id, COUNT(*) AS issued_count "
+            + "           FROM coupon_issue GROUP BY campaign_id) actual ON actual.campaign_id = c.id "
+            + "WHERE c.id = :campaignId "
+            + "  AND c.total_stock <> COALESCE(shard.remaining_stock, c.remaining_stock) "
+            + "                       + COALESCE(actual.issued_count, 0)",
+            nativeQuery = true)
+    Optional<StockMismatchProjection> findStockMismatch(@Param("campaignId") Long campaignId);
 }

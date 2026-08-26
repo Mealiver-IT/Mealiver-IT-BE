@@ -22,6 +22,14 @@ import org.springframework.stereotype.Component;
 // MembershipTierBatchJob의 집계 윈도우([:월시작, :월종료), 05_시스템설계.txt 1.1 (f))도 같은
 // SeedTargetMonth를 봐야 계급 분포가 맞으므로, MembershipTierSeedRunner가 이 값을 그대로 재사용한다
 // (필요하면 -Dseed.orders.target-month=yyyy-MM 으로 두 러너 다 같은 값을 넘기면 된다).
+//
+// 재개(resume, 2026-08-25 추가): "이미 주문이 있는 유저는 건너뛴다"로는 안 된다 - 이등병 버킷은
+// minOrders=0이라 주문 0건도 정상 결과이고, orders 테이블만 봐서는 "0건으로 끝난 유저"와
+// "아직 처리 안 된 유저"를 구분할 수 없다(구분 못 하면 완주한 뒤 재실행해도 매번 이등병 구간
+// 유저들을 다시 처리하게 됨 - 최초 구현에서 실제로 이 버그가 나서 고쳤다). 대신 유저를 id 오름차순
+// 그대로 처리하는 걸 이용해 "지금까지 커밋된 주문 중 가장 큰 user_id"를 재개 기준점으로 쓴다 -
+// 그 이하 id는 (0건으로 끝났든 아니든) 이미 처리된 구간으로 보고 건너뛴다. 버킷 배정은 유저
+// 리스트상 위치(i)로만 정해지므로 skip 여부와 무관하게 원래 비율 그대로 유지된다.
 @Component
 @Order(10)
 @ConditionalOnProperty(name = "seed.orders.enabled", havingValue = "true")
@@ -30,6 +38,8 @@ public class OrderSeedRunner implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(OrderSeedRunner.class);
 
     private static final String SELECT_USER_IDS_SQL = "SELECT id FROM users ORDER BY id";
+
+    private static final String SELECT_MAX_PROCESSED_USER_ID_SQL = "SELECT MAX(user_id) FROM orders";
 
     private static final String INSERT_SQL =
         "INSERT INTO orders (user_id, order_amount, paid_amount, status, ordered_at, completed_at) "
@@ -59,6 +69,18 @@ public class OrderSeedRunner implements CommandLineRunner {
             return;
         }
 
+        Long maxProcessedObj = jdbcTemplate.queryForObject(SELECT_MAX_PROCESSED_USER_ID_SQL, Long.class);
+        long resumeAfterUserId = maxProcessedObj == null ? 0L : maxProcessedObj;
+        long highestUserId = userIds.get(userIds.size() - 1);
+
+        if (resumeAfterUserId >= highestUserId) {
+            log.info("skip: 이미 전체 유저(최대 id={}) 주문 시딩 완료 - 재개할 것 없음", highestUserId);
+            return;
+        }
+        if (resumeAfterUserId > 0) {
+            log.info("재개: user id <= {} 는 이미 처리된 구간으로 보고 건너뜀", resumeAfterUserId);
+        }
+
         YearMonth targetMonth = SeedTargetMonth.resolve();
         LocalDateTime monthStart = targetMonth.atDay(1).atStartOfDay();
         LocalDateTime monthEnd = targetMonth.atEndOfMonth().atTime(23, 59, 59);
@@ -77,6 +99,10 @@ public class OrderSeedRunner implements CommandLineRunner {
             }
             TierBucket bucket = BUCKETS[bucketIndex];
             long userId = userIds.get(i);
+
+            if (userId <= resumeAfterUserId) {
+                continue;
+            }
 
             int orderCount = bucket.minOrders
                 + (bucket.maxOrders > bucket.minOrders
@@ -102,7 +128,8 @@ public class OrderSeedRunner implements CommandLineRunner {
             jdbcTemplate.batchUpdate(INSERT_SQL, batch);
         }
 
-        log.info("done: users={}, orders={}, targetMonth={}", userIds.size(), totalOrders, targetMonth);
+        log.info("done: users={}, orders={}(이번 실행분), targetMonth={}, resumeAfterUserId={}",
+            userIds.size(), totalOrders, targetMonth, resumeAfterUserId);
         for (int b = 0; b < BUCKETS.length; b++) {
             log.info("  {} -> orders={}", BUCKETS[b].label, orderCountByBucket[b]);
         }

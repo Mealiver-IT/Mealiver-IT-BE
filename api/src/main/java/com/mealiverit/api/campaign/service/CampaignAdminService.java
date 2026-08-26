@@ -2,10 +2,12 @@ package com.mealiverit.api.campaign.service;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.dto.*;
+import com.mealiverit.api.campaign.event.CampaignStatusChangedEvent;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.campaign.Campaign;
 import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.entity.campaign.CampaignStockShardRepository;
 import com.mealiverit.entity.coupon.entity.Coupon;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
@@ -14,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,19 +29,24 @@ public class CampaignAdminService {
     private final CouponRepository couponRepository;
     private final CampaignStockCache campaignStockCache;
     private final CouponIssueRepository couponIssueRepository;
+    private final CampaignStockShardRepository campaignStockShardRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CampaignAdminService(CampaignRepository campaignRepository, CouponRepository couponRepository,
-                                 CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository) {
+                                CampaignStockCache campaignStockCache, CouponIssueRepository couponIssueRepository,
+                                CampaignStockShardRepository campaignStockShardRepository, ApplicationEventPublisher eventPublisher) {
         this.campaignRepository = campaignRepository;
         this.couponRepository = couponRepository;
         this.campaignStockCache = campaignStockCache;
         this.couponIssueRepository = couponIssueRepository;
+        this.campaignStockShardRepository = campaignStockShardRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
     public CampaignResponse create(CampaignCreateRequest request) {
         Campaign campaign = campaignRepository.save(
-                new Campaign(request.name(), request.totalStock(), request.minMembershipTier()));
+                new Campaign(request.name(), request.totalStock(), request.minMembershipTier(), request.scheduledOpenAt()));
         Coupon coupon = couponRepository.save(new Coupon(campaign.getId(), request.discountType(),
                 request.discountValue(), request.minOrderAmount(), request.maxDiscountAmount(),
                 request.validHours()));
@@ -89,8 +98,25 @@ public class CampaignAdminService {
             case CLOSED -> campaign.close();
             case READY -> throw new BusinessException(ErrorCode.CAMPAIGN_INVALID_STATE_TRANSITION);
         }
+
+        // 커밋 성공 시에만 SSE 구독자에게 알려야 하므로 이벤트 발생만 하고, 실제 전송은 CampaignStatusChangeListener(AFTER_COMMIT)에 맡김
+        // 낙관적 락 충돌로 이 트랜잭션이 롤백되면 이 이벤트도 자동으로 폐기됨
+        eventPublisher.publishEvent(new CampaignStatusChangedEvent(campaignId, campaign.getStatus()));
         Coupon coupon = couponRepository.findByCampaignId(campaignId).orElse(null);
         return CampaignResponse.of(campaign, coupon);
+    }
+
+    // 캠페인 삭제(하드 삭제) - 이미 쿠폰이 발급된 캠페인은 정합성 검증 배치가 참조하는 데이터라 삭제를 막음
+    // FK 제약 순서상 campaign_stock_shard -> coupon -> campaign 순으로 지움
+    @Transactional
+    public void delete(Long campaignId) {
+        Campaign campaign = findCampaignOrThrow(campaignId);
+        if (couponIssueRepository.countByCampaignId(campaignId) > 0) {
+            throw new BusinessException(ErrorCode.CAMPAIGN_HAS_ISSUED_COUPONS);
+        }
+        campaignStockShardRepository.deleteByCampaignId(campaignId);
+        couponRepository.findByCampaignId(campaignId).ifPresent(couponRepository::delete);
+        campaignRepository.delete(campaign);
     }
 
     private Campaign findCampaignOrThrow(Long campaignId) {
