@@ -1,6 +1,9 @@
 package com.mealiverit.api.batch;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.entity.campaign.Campaign;
@@ -15,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -24,6 +28,11 @@ import org.testcontainers.utility.DockerImageName;
 // 2026-08-19 실측(완판 직후 DB만 리셋 -> Redis 스냅샷이 0에 고정되어 영구 품절 오판) 대응.
 // (1) DB와 어긋난 스냅샷이 재동기화로 실제 값으로 복구되는지, (2) 갱신된 스냅샷에 TTL이
 // 걸려있는지(재동기화 잡 자체가 멎어도 자연 소멸하는 안전장치) 두 가지를 검증한다.
+//
+// 2026-08-26 추가: reconcile()이 캠페인 한 건씩 REQUIRES_NEW 트랜잭션으로 처리하는지(한 캠페인
+// 실패가 나머지에 전파되지 않는지)도 검증한다 - 부하테스트 담당자가 리포트한 "remainingStock이
+// 테스트 내내 한 번도 안 바뀜" 현상의 유력한 원인이었다(전체를 하나의 트랜잭션으로 묶어서 한
+// 캠페인 실패가 사이클 전체를 롤백시켰음).
 @SpringBootTest
 @Testcontainers
 class CampaignStockSnapshotReconciliationJobTest {
@@ -54,6 +63,8 @@ class CampaignStockSnapshotReconciliationJobTest {
     private CampaignStockShardRepository campaignStockShardRepository;
     @Autowired
     private StringRedisTemplate redisTemplate;
+    @MockitoSpyBean
+    private CampaignRepository campaignRepositorySpy;
 
     @Test
     void 완판후_샤드테이블만_리셋된_상태에서도_재동기화하면_스냅샷이_샤드합계로_복구된다() {
@@ -110,6 +121,28 @@ class CampaignStockSnapshotReconciliationJobTest {
         Long expireSeconds = redisTemplate.getExpire("stock:" + campaignId, TimeUnit.SECONDS);
         assertThat(expireSeconds).isNotNull();
         assertThat(expireSeconds).isGreaterThan(0);
+    }
+
+    @Test
+    void 한_캠페인의_재동기화_실패가_다른_캠페인_갱신을_막지_않는다() {
+        Long ok = createOpenCampaign(300);
+        Long broken = createOpenCampaign(300);
+        campaignStockShardRepository.save(new CampaignStockShard(ok, 0, 200, 300));
+        campaignStockShardRepository.save(new CampaignStockShard(broken, 0, 250, 300));
+
+        // 극단적 동시성 상황에서 HikariCP 커넥션 획득 실패 등으로 한 캠페인 처리 중 예외가 나는
+        // 상황을 재현 - reconcile() 전체가 하나의 트랜잭션이었다면 이 예외로 ok 캠페인의 갱신까지
+        // 롤백됐을 것이다.
+        doThrow(new RuntimeException("의도적 실패(테스트) - 커넥션 획득 실패 상황 재현"))
+                .when(campaignRepositorySpy).setRemainingStock(eq(broken), anyInt());
+
+        reconciliationJob.reconcile();
+
+        assertThat(campaignStockCache.getSnapshot(ok)).isEqualTo(200);
+        assertThat(campaignRepository.findById(ok).orElseThrow().getRemainingStock()).isEqualTo(200);
+        // broken은 이번 사이클엔 실패했어야 하고(다음 15초 주기에 재시도), 갱신 안 된 채로 남아야 한다.
+        assertThat(campaignStockCache.getSnapshot(broken)).isNull();
+        assertThat(campaignRepository.findById(broken).orElseThrow().getRemainingStock()).isEqualTo(300);
     }
 
     private Long createOpenCampaign(int stock) {
