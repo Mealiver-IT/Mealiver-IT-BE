@@ -39,6 +39,11 @@ public enum ErrorCode {
     // 오염 데이터 시더 (POST /api/admin/dirty-data/*) 관련
     DIRTY_DATA_SCRIPT_FAILED(HttpStatus.CONFLICT, "오염 데이터 스크립트 실행에 실패했습니다. 이미 삽입된 상태에서 재삽입을 시도했을 수 있습니다 (먼저 정리를 실행하세요)."),
 
+    // 검증 배치 수동 실행 (POST /api/admin/verification/run*) 관련
+    VERIFICATION_BATCH_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "이 서버는 검증 배치가 비활성화되어 있습니다 (app.consistency-verification.enabled=true로 재시작 필요)."),
+    VERIFICATION_ALREADY_RUNNING(HttpStatus.CONFLICT, "검증 배치가 이미 실행 중입니다."),
+    VERIFICATION_START_FAILED(HttpStatus.CONFLICT, "검증 배치를 시작하지 못했습니다."),
+
     ;
 
     private final HttpStatus status;
