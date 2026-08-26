@@ -47,7 +47,8 @@ public class CampaignScheduledOpenBatchJob {
     public void run() {
         List<Campaign> dueCampaigns = campaignRepository.findByStatusAndOpenAtLessThanEqual(CampaignStatus.READY, LocalDateTime.now());
         for (Campaign campaign : dueCampaigns) {
-            campaign.open(campaign.getOpenAt(), null);
+            // getCloseAt()은 생성 시점에 미리 예약해둔 scheduledCloseAt(없으면 null=무기한)을 그대로 보존한다.
+            campaign.open(campaign.getOpenAt(), campaign.getCloseAt());
             eventPublisher.publishEvent(new CampaignStatusChangedEvent(campaign.getId(), campaign.getStatus()));
             log.info("캠페인 예약 오픈 실행: campaign={}, openAt={}", campaign.getId(), campaign.getOpenAt());
         }
