@@ -145,7 +145,7 @@ class StockLossRepairJobTest {
 
         int repaired = campaignStockShardRepository.sumRemainingStock(campaignId);
         assertThat(repaired).isEqualTo(100);
-        verify(slackNotifier, times(1)).send(any());
+        verify(slackNotifier, times(1)).send(any(), any());
     }
 
     @Test
@@ -158,7 +158,7 @@ class StockLossRepairJobTest {
 
         int untouched = campaignStockShardRepository.sumRemainingStock(campaignId);
         assertThat(untouched).isEqualTo(105);
-        verify(slackNotifier, times(1)).send(any());
+        verify(slackNotifier, times(1)).send(any(), any());
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.coupon.service.StockReservationStrategy;
+import com.mealiverit.api.verification.report.AnomalyDetail;
 import com.mealiverit.api.verification.report.CheckType;
 import com.mealiverit.api.verification.report.ConsistencyReport;
 import com.mealiverit.api.verification.report.SlackNotifier;
@@ -115,13 +116,8 @@ public class StockLossRepairJob {
         }
         log.info("재고 유실 복구: campaignId={}, 복구량={}", campaignId, deficit);
         if (notifySlack) {
-            slackNotifier.send(new ConsistencyReport(
-                    0L,
-                    "StockLossRepairJob(캠페인 종료 - 재고 유실 자동복구됨)",
-                    LocalDateTime.now(),
-                    BatchStatus.COMPLETED,
-                    Map.of(CheckType.COUNTER_MISMATCH, 1L),
-                    List.of("campaignId=" + campaignId + ", repaired=" + deficit)));
+            notifySlack("StockLossRepairJob(캠페인 종료 - 재고 유실 자동복구됨)",
+                    "campaignId=" + campaignId + ", repaired=" + deficit);
         }
     }
 
@@ -132,13 +128,28 @@ public class StockLossRepairJob {
                 mismatch.getCampaignId(), mismatch.getTotalStock(), mismatch.getShardRemaining(),
                 mismatch.getIssuedCount(), excess);
         if (notifySlack) {
-            slackNotifier.send(new ConsistencyReport(
-                    0L,
-                    "StockLossRepairJob(재고 초과 의심 - 수동 확인 필요)",
-                    LocalDateTime.now(),
-                    BatchStatus.COMPLETED,
-                    Map.of(CheckType.COUNTER_MISMATCH, 1L),
-                    List.of("campaignId=" + mismatch.getCampaignId() + ", excess=" + excess)));
+            notifySlack("StockLossRepairJob(재고 초과 의심 - 수동 확인 필요)",
+                    "campaignId=" + mismatch.getCampaignId() + ", excess=" + excess);
         }
+    }
+
+    // ConsistencyReport가 원래 Spring Batch(ConsistencyVerificationJob)의 Step 실행 결과 +
+    // Notion 리포트 링크까지 담는 용도로 커진 record라(2026-08-26, fix/verification PR)
+    // 필드가 늘었다. 이 잡은 Spring Batch도, Notion 리포트 생성도 안 쓰는 단발성 알림이라
+    // stepExecutions는 빈 리스트, reportUrl은 없음(null)으로 채운다 - SlackNotifier가 reportUrl이
+    // 없을 때 "상세 리포트 보기" 버튼을 건너뛰도록 이미 처리해둠.
+    private void notifySlack(String jobName, String detail) {
+        LocalDateTime now = LocalDateTime.now();
+        ConsistencyReport report = new ConsistencyReport(
+                0L,
+                jobName,
+                now,
+                now,
+                BatchStatus.COMPLETED,
+                Map.of(CheckType.COUNTER_MISMATCH, 1L),
+                List.of(),
+                List.of(detail),
+                List.of(new AnomalyDetail(CheckType.COUNTER_MISMATCH, detail, detail, now)));
+        slackNotifier.send(report, null);
     }
 }
