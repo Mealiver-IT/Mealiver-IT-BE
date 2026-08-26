@@ -6,6 +6,8 @@ import java.util.Optional;
 import com.mealiverit.entity.campaign.CampaignType;
 import com.mealiverit.entity.coupon.CouponStatus;
 import com.mealiverit.entity.coupon.entity.CouponIssue;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,7 +18,15 @@ public interface CouponIssueRepository extends JpaRepository<CouponIssue, Long> 
     Optional<CouponIssue> findByIdempotencyKey(String idempotencyKey);
 
     // unique 제약(uk_campaign_user) 위반 시 기존 레코드 반환용 (04_아키텍처.txt 5.1절)
+    // 관리자 쿠폰 강제 회수 화면에서 "이 캠페인에서 이 유저의 발급 건 찾기" 용도로도 재사용 -
+    // uk_campaign_user가 이미 이 조합에 유니크 인덱스를 걸어둬서 조회가 빠르다.
     Optional<CouponIssue> findByCampaignIdAndUserId(Long campaignId, Long userId);
+
+    // 관리자 쿠폰 강제 회수 화면 - 캠페인별 발급 목록 브라우징(uk_campaign_user 인덱스의 선행
+    // 컬럼(campaign_id)을 그대로 타므로 별도 인덱스 추가 없이도 스캔 범위가 좁다)
+    Page<CouponIssue> findByCampaignId(Long campaignId, Pageable pageable);
+
+    Page<CouponIssue> findByCampaignIdAndStatus(Long campaignId, CouponStatus status, Pageable pageable);
 
     // 검증 쿼리 (a)(c), 08_개발표준.txt 5.1절 테스트에서 사용
     long countByCampaignId(Long campaignId);
