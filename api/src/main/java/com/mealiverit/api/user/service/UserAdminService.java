@@ -30,4 +30,23 @@ public class UserAdminService {
     public long count() {
         return userRepository.count();
     }
+
+    private static final int MAX_SEARCH_RESULTS = 200;
+
+    // 관리자 유저 목록 화면 검색 - list()(전체 fetch)를 대체. 필터가 전부 비어있으면 쿼리 자체를
+    // 안 날린다(빈 조건 LIKE '%%'로 전체 스캔+반환하는 걸 막기 위함, 화면 쪽 "검색 안 함" UX와도 일치).
+    @Transactional(readOnly = true)
+    public List<UserResponse> search(String id, String loginId, String name) {
+        String idFilter = id == null ? "" : id.trim();
+        String loginIdFilter = loginId == null ? "" : loginId.trim().toLowerCase();
+        String nameFilter = name == null ? "" : name.trim();
+
+        if (idFilter.isEmpty() && loginIdFilter.isEmpty() && nameFilter.isEmpty()) {
+            return List.of();
+        }
+
+        return userRepository.search(idFilter, loginIdFilter, nameFilter, MAX_SEARCH_RESULTS).stream()
+                .map(UserResponse::of)
+                .toList();
+    }
 }
