@@ -59,22 +59,26 @@ public class SlackNotifier {
             ))
         );
         
-        blocks.add(Map.of(
-                "type", "actions",
-                "elements", List.of(
-                        Map.of(
-                                "type", "button",
-                                "text", Map.of(
-                                        "type",
-                                        "plain_text",
-                                        "text",
-                                        "📊 상세 리포트 보기"
-                                ),
-                                "url",
-                                reportUrl
-                        )
-                )
-        ));
+        // reportUrl이 없는 호출측(예: StockLossRepairJob - Notion 리포트를 안 만듦)도 있어서,
+        // Map.of("url", null)로 NPE가 나지 않게 버튼 블록 자체를 건너뛴다.
+        if (reportUrl != null && !reportUrl.isBlank()) {
+            blocks.add(Map.of(
+                    "type", "actions",
+                    "elements", List.of(
+                            Map.of(
+                                    "type", "button",
+                                    "text", Map.of(
+                                            "type",
+                                            "plain_text",
+                                            "text",
+                                            "📊 상세 리포트 보기"
+                                    ),
+                                    "url",
+                                    reportUrl
+                            )
+                    )
+            ));
+        }
 
         if (!report.failedSteps().isEmpty()) {
             blocks.add(Map.of(
