@@ -29,6 +29,10 @@ public enum ErrorCode {
     ORDER_ACCESS_DENIED(HttpStatus.FORBIDDEN, "본인의 주문만 조회할 수 있습니다."),
     ORDER_INVALID_STATE_TRANSITION(HttpStatus.CONFLICT, "허용되지 않은 주문 상태 전이입니다."),
 
+    // 상태전이 (markUsed/markCanceled/markReturnedToIssued) @Retryable 소진 시
+    // uk_state_log_request 경합이 DataIntegrityViolationException 또는 AssertionFailure로 새어나올 수 있음
+    COUPON_STATE_CONFLICT(HttpStatus.CONFLICT, "요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."),
+
     // 존재하지 않는 X-User-Id로 조회 시 사용
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 사용자입니다."),
 
