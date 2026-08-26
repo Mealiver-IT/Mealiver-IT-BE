@@ -1,19 +1,13 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.coupon.service.StockReservationStrategy;
-import com.mealiverit.api.verification.report.CheckType;
-import com.mealiverit.api.verification.report.ConsistencyReport;
-import com.mealiverit.api.verification.report.SlackNotifier;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.StockMismatchProjection;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import net.javacrumbs.shedlock.core.LockAssert;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.BatchStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -28,8 +22,13 @@ import org.springframework.stereotype.Component;
 // 쓰되, 방향을 반드시 구분한다: 재고가 "부족한" 방향(샤드 합계+발급건수 < total_stock)만
 // 안전하게 자동 복구 가능하다 - 진짜 발급된 적 없는 재고를 되돌리는 것뿐이라 초과발급 위험이
 // 없다. 반대 방향(재고가 "남는" 쪽)은 다른 종류의 버그(중복 복원 등)일 수 있어 자동으로 만지지
-// 않고 Slack 알림만 보낸다 - CampaignStockSnapshotReconciliationJob이 "정상 재고를 품절로
+// 않고 ERROR 로그만 남긴다 - CampaignStockSnapshotReconciliationJob이 "정상 재고를 품절로
 // 오판하는 방향"만 자가치유하는 것과 같은 원칙(안전한 방향만 자동화).
+//
+// 2026-08-26: 이 초과 방향은 원래 Slack에도 알렸었는데, 60초마다 재검사하는 잡 특성상 데이터를
+// 직접 고치기 전까지 같은 불일치를 매번 다시 알려서 팀 Slack 채널에 스팸이 됐다(자동 복구가
+// 없으니 알림만 반복되고 해소가 안 됨). 이 방향은 즉각 대응이 필요한 게 아니라 "누군가 데이터를
+// 들여다봐야 한다"는 로그 레벨 신호로 충분하다고 판단해 Slack 전송은 빼고 ERROR 로그만 남긴다.
 //
 // @Transactional을 안 건 이유: 이 메서드가 하는 쓰기는 stockReservationStrategy.rollback()
 // 뿐인데, 그 내부(ShardedStockReservationStrategy)는 이미 REQUIRES_NEW로 샤드 하나하나를
@@ -43,14 +42,11 @@ public class StockLossRepairJob {
 
     private final CampaignRepository campaignRepository;
     private final StockReservationStrategy stockReservationStrategy;
-    private final SlackNotifier slackNotifier;
 
     public StockLossRepairJob(CampaignRepository campaignRepository,
-                               StockReservationStrategy stockReservationStrategy,
-                               SlackNotifier slackNotifier) {
+                               StockReservationStrategy stockReservationStrategy) {
         this.campaignRepository = campaignRepository;
         this.stockReservationStrategy = stockReservationStrategy;
-        this.slackNotifier = slackNotifier;
     }
 
     // 2026-08-26: 처음엔 5분 주기였는데, 이 프로젝트의 선착순 캠페인은 보통 수십 초~1분 안에
@@ -96,12 +92,5 @@ public class StockLossRepairJob {
                         + "campaignId={}, totalStock={}, shardRemaining={}, issuedCount={}, excess={}",
                 mismatch.getCampaignId(), mismatch.getTotalStock(), mismatch.getShardRemaining(),
                 mismatch.getIssuedCount(), excess);
-        slackNotifier.send(new ConsistencyReport(
-                0L,
-                "StockLossRepairJob(재고 초과 의심 - 수동 확인 필요)",
-                LocalDateTime.now(),
-                BatchStatus.COMPLETED,
-                Map.of(CheckType.COUNTER_MISMATCH, 1L),
-                List.of("campaignId=" + mismatch.getCampaignId() + ", excess=" + excess)));
     }
 }
