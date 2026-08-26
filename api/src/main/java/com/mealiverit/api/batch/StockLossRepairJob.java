@@ -53,7 +53,11 @@ public class StockLossRepairJob {
         this.slackNotifier = slackNotifier;
     }
 
-    @Scheduled(fixedDelay = 300000)
+    // 2026-08-26: 처음엔 5분 주기였는데, 이 프로젝트의 선착순 캠페인은 보통 수십 초~1분 안에
+    // 재고가 소진된다(이번 세션 부하테스트 실측) - 5분이면 유실이 복구되기도 전에 캠페인의
+    // "핫한" 시간대가 이미 다 지나가버려 복구된 재고를 받아갈 유저가 없을 수 있다. 평상시
+    // 비용(불일치 없으면 집계 쿼리 1회)이 낮아서 짧게 잡아도 부담이 적다.
+    @Scheduled(fixedDelay = 60000)
     @SchedulerLock(name = "stockLossRepairJob", lockAtLeastFor = "PT10S", lockAtMostFor = "PT2M")
     public void scheduledRepair() {
         LockAssert.assertLocked();
