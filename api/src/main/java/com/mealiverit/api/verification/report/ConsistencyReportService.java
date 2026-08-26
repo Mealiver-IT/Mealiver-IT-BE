@@ -6,6 +6,8 @@ import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.step.StepExecution;
 import org.springframework.stereotype.Service;
 
+import com.mealiverit.api.verification.VerificationScanCountListener;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -123,6 +125,12 @@ public class ConsistencyReportService {
             StepExecution step
     ) {
 
+    	long scannedCount =
+                step.getExecutionContext()
+                        .getLong(
+                                VerificationScanCountListener.SCANNED_COUNT_KEY,
+                                0L
+                        );
         return new StepExecutionSummary(
                 step.getStepName(),
                 step.getStatus().name(),
@@ -133,7 +141,8 @@ public class ConsistencyReportService {
                 step.getFilterCount(),
                 step.getReadSkipCount(),
                 step.getProcessSkipCount(),
-                step.getWriteSkipCount()
+                step.getWriteSkipCount(),
+                scannedCount
         );
     }
 }

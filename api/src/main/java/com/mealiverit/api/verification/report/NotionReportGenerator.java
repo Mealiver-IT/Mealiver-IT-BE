@@ -157,10 +157,9 @@ public class NotionReportGenerator {
 
         blocks.add(callout(
                 String.format(
-                        "%s\n전체 이상 건수 %,d건\n검증 처리 건수 %,d건 (전체 %,d건 중)\n실행 시간 %s",
+                        "%s\n이상 건수 %,d건(전체 %,d건 중)\n실행 시간 %s",
                         hasAnomalies ? "이상값 발견" : "정상",
                         report.totalViolationCount(),
-                        report.totalVerificationCount(),
                         report.totalVerificationCount(),
                         formatDuration(report.durationMillis())
                 ),
@@ -341,9 +340,8 @@ public class NotionReportGenerator {
                 richText("Step"),
                 richText("상태"),
                 richText("실행 시간"),
-                richText("Read"),
-                richText("Write"),
-                richText("Filter")
+                richText("스캔 건수"),
+                richText("이상 건수")
         )));
 
         steps.forEach(step -> {
@@ -352,9 +350,8 @@ public class NotionReportGenerator {
                     richText(step.stepName()),
                     richTextColored(step.status(), success ? "green" : "red"),
                     richText(formatDuration(step.durationMillis())),
-                    richText(String.format("%,d", step.readCount())),
-                    richText(String.format("%,d", step.writeCount())),
-                    richText(String.format("%,d", step.filterCount()))
+                    richText(String.format("%,d", step.scannedCount())),
+                    richText(String.format("%,d", step.writeCount()))
             )));
         });
 
@@ -362,7 +359,7 @@ public class NotionReportGenerator {
                 "object", "block",
                 "type", "table",
                 "table", Map.of(
-                        "table_width", 6,
+                        "table_width", 5,
                         "has_column_header", true,
                         "has_row_header", false,
                         "children", rows

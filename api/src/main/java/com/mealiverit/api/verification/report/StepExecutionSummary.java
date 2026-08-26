@@ -23,7 +23,9 @@ public record StepExecutionSummary(
 
         long processSkipCount,
 
-        long writeSkipCount
+        long writeSkipCount,
+        
+        long scannedCount
 
 ) {
 

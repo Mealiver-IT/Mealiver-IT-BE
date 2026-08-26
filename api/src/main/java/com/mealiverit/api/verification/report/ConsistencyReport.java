@@ -45,14 +45,13 @@ public record ConsistencyReport(
     }
     
     public long totalVerificationCount() {
-
         return stepExecutions.stream()
                 .mapToLong(
-                        StepExecutionSummary::readCount
+                        StepExecutionSummary::scannedCount
                 )
                 .sum();
     }
-
+    
     public long durationMillis() {
 
         if (startTime == null || endTime == null) {
