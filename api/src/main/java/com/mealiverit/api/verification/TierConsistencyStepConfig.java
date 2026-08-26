@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
@@ -88,6 +89,16 @@ public class TierConsistencyStepConfig {
                         )
         );
     }
+    
+    @Bean
+    public VerificationScanCountListener tierConsistencyScanCountListener(
+            JdbcTemplate jdbcTemplate
+    ) {
+        return new VerificationScanCountListener(
+                jdbcTemplate,
+                "SELECT COUNT(*) FROM users"
+        );
+    }
 
     @Bean
     public Step tierConsistencyStep(
@@ -95,7 +106,8 @@ public class TierConsistencyStepConfig {
             PlatformTransactionManager transactionManager,
             JdbcPagingItemReader<TierMismatchRow> tierConsistencyReader,
             ItemProcessor<TierMismatchRow, VerificationViolation> tierConsistencyProcessor,
-            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter
+            JdbcBatchItemWriter<VerificationViolation> verificationResultWriter,
+            VerificationScanCountListener  tierConsistencyScanCountListener
     ) {
         return VerificationStepFactory.chunkStep(
                 "tierConsistencyStep",
@@ -103,7 +115,8 @@ public class TierConsistencyStepConfig {
                 transactionManager,
                 tierConsistencyReader,
                 tierConsistencyProcessor,
-                verificationResultWriter
+                verificationResultWriter,
+                tierConsistencyScanCountListener
         );
     }
 }
