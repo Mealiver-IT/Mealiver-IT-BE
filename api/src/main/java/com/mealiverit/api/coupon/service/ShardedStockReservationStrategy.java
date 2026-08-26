@@ -23,9 +23,17 @@ import org.springframework.stereotype.Component;
 // 다른 샤드에 재고가 남아있으면 자동으로 찾아간다. 재고가 넉넉한 구간에는 대부분 1번 시도로
 // 끝나 경합이 N분의 1로 분산되고, 막판 소진 직전에만 여러 샤드를 순회하는 비용이 붙는다.
 //
-// 샤드는 캠페인 생성 시점이 아니라 이 전략이 처음 그 캠페인을 다룰 때 지연 생성한다
-// (ensureShardsExist) - campaign.remaining_stock을 기준으로 나누므로, 이 마이그레이션 이전에
-// 이미 존재하던 캠페인(부분 발급된 것 포함)도 별도 백필 없이 정확한 값으로 자동 채워진다.
+// 2026-08-26: 신규 캠페인은 이제 생성 시점(CampaignShardInitListener, CampaignCreatedEvent
+// AFTER_COMMIT)에 바로 샤드를 만든다 - ensureShardsExist()가 여기서도 그대로 재사용된다.
+// 아래 "지연 생성" 로직 자체는 없애지 않았다: (1) 이 기능이 생기기 전에 만들어진 과거 캠페인,
+// (2) 생성 이벤트 리스너가 아직 처리되기 전에(이론상으로만 가능) reserve()/rollback()이
+// 먼저 들어오는 경우의 안전망으로 계속 필요하다. ensureShardsExist()는 멱등이라 생성 시점에
+// 이미 만들어진 샤드에 대해 reserve()가 다시 호출해도 아무 일도 안 한다(빠른 경로로 즉시 반환).
+//
+// (이하는 지연 생성 로직 자체의 배경 - 이 기능이 생기기 전 캠페인들에게 여전히 적용됨)
+// 샤드는 원래 캠페인 생성 시점이 아니라 이 전략이 처음 그 캠페인을 다룰 때 지연 생성했다
+// (ensureShardsExist) - campaign.remaining_stock을 기준으로 나누므로, 샤딩 도입 이전에
+// 이미 존재하던 캠페인(부분 발급된 것 포함)도 별도 백필 없이 정확한 값으로 자동 채워졌다.
 // 인스턴스별 인메모리 집합으로 "이미 확인한 캠페인"을 기억해 이후 요청마다 존재여부 조회가
 // 반복되지 않게 한다. 생성 구간 자체는 캠페인별 락으로 원자화한다 - 2026-08-21 부하테스트(캠페인
 // 300, 10~11회차) 실측으로 발견된 문제 참고: 락 없이는 샤드 1개만 커밋된 순간 다른 스레드가
@@ -125,7 +133,9 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 캠페인별 락으로 "확인 + 생성"을 원자화한다 - double-checked locking: 락 밖에서 먼저
     // 빠르게 확인해 이미 끝난 경우 락 자체를 안 타게 하고(정상 트래픽 대부분이 여기서 끝남),
     // 락 안에서 한 번 더 확인해 대기하던 다른 스레드들이 중복 생성하지 않게 한다.
-    private void ensureShardsExist(Long campaignId) {
+    // CampaignShardInitListener(캠페인 생성 직후)와 reserve()/rollback()(지연 생성 폴백) 양쪽에서
+    // 호출하므로 public - 멱등이라 몇 번을 다시 불러도 안전하다(이미 초기화된 캠페인은 즉시 반환).
+    public void ensureShardsExist(Long campaignId) {
         if (initializedCampaignIds.contains(campaignId)) {
             return;
         }
