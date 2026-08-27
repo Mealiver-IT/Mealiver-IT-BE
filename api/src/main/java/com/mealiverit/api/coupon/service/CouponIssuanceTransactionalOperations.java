@@ -16,7 +16,6 @@ import com.mealiverit.entity.user.User;
 import com.mealiverit.entity.user.UserRepository;
 import java.math.BigDecimal;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +24,13 @@ import org.springframework.transaction.annotation.Transactional;
 // 재조회를 계속하면 "AssertionFailure: has a null identifier" 발생 — 동시성 테스트로 실측). 각 단계의
 // 예외가 프록시 경계를 넘어가야 트랜잭션이 깨끗하게 롤백되고, 복구는 완전히 새 트랜잭션/세션에서
 // 수행된다. 같은 클래스 안에서 this.method() 자기호출로는 프록시를 안 타서 트랜잭션 경계가 안
-// 나뉘기 때문에, 아래 세 메서드는 반드시 CouponIssuanceService(다른 빈)에서 순서대로 호출돼야 한다.
+// 나뉘기 때문에, 아래 메서드들은 반드시 CouponIssuanceService(다른 빈)에서 순서대로 호출돼야 한다.
+//
+// 2026-08-27: insertCouponIssue() 실패 시 "이미 커밋됐는지 먼저 확인" 하는 조회
+// (recoverFromInsertFailure)는 CouponIssuanceService 쪽에 있다 - insertCouponIssue()의
+// @Transactional이 이미 완전히 종료(롤백)된 뒤에 실행되는 별개의 새 트랜잭션이라, 여기 세션
+// 오염 문제와 무관하게 안전하다(couponIssueRepository 호출 자체가 Spring Data JPA 기본 동작으로
+// 매번 자기만의 트랜잭션을 새로 연다).
 //
 // 락 구간 축소(2026-08-19): 예전엔 캠페인 락 획득 -> eligibility 판정 -> 재고 차감 -> 쿠폰 정책
 // 조회 -> coupon_issue INSERT까지 하나의 트랜잭션 안에서 처리했다. 캠페인 row 락은 트랜잭션이
@@ -102,8 +107,9 @@ class CouponIssuanceTransactionalOperations {
         BigDecimal appliedDiscountValue = resolveDiscountValue(coupon, userTier);
 
         // uk_campaign_user, uk_idempotency_key가 최종 방어선. 위반 시 DataIntegrityViolationException은
-        // 여기서 삼키지 않고 그대로 던져 이 트랜잭션만 롤백시킨다 — 재고 원복(compensateStockRollback)과
-        // 기존 레코드 조회(recoverFromConflict)는 호출측(CouponIssuanceService)이 순서대로 처리한다.
+        // 여기서 삼키지 않고 그대로 던져 이 트랜잭션만 롤백시킨다 — 실제 커밋 여부 확인
+        // (recoverFromInsertFailure)과 필요시 재고 원복(compensateStockRollback)은 호출측
+        // (CouponIssuanceService)이 이 순서로 처리한다.
         CouponIssue issue = CouponIssue.issue(campaignId, userId, idempotencyKey,
                 coupon, userTier, appliedDiscountValue);
         couponIssueRepository.save(issue);
@@ -120,16 +126,6 @@ class CouponIssuanceTransactionalOperations {
     @Transactional
     void compensateStockRollback(Long campaignId) {
         stockReservationStrategy.rollback(campaignId);
-    }
-
-    @Transactional
-    IssueResult recoverFromConflict(Long campaignId, Long userId, DataIntegrityViolationException cause) {
-        // unique 제약 위반 = 동시에 같은 요청/유저가 통과됨 → 기존 레코드를 찾아 반환.
-        // 재고 원복은 이 메서드 호출 전에 compensateStockRollback()이 별도 트랜잭션에서 이미
-        // 처리했다(호출측 CouponIssuanceService.issueNew() 참고) - 여기서 또 원복하면 이중 복원.
-        return couponIssueRepository.findByCampaignIdAndUserId(campaignId, userId)
-                .map(IssueResult::alreadyProcessed)
-                .orElseThrow(() -> cause);
     }
 
     // RATE 타입은 발급 시점 계급별 차등 할인율(04_아키텍처.txt 6.1절), FIXED 타입은 쿠폰 정책의 고정값 그대로.
