@@ -3,6 +3,8 @@ package com.mealiverit.api.coupon.notification;
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
 import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
@@ -23,12 +25,27 @@ import org.springframework.transaction.event.TransactionalEventListener;
 // 매 발급마다 실시간일 필요가 없다 - 그래서 이 리스너에서는 DB 쓰기를 빼고 Redis 스냅샷만
 // 갱신한다. campaign.remaining_stock 동기화는 CampaignStockSnapshotReconciliationJob(15초
 // 주기)에만 맡긴다 - 캠페인당 UPDATE 빈도가 "발급 1건당 1번"에서 "15초에 1번"으로 줄어든다.
+//
+// 2026-08-27 스로틀링 추가: 위 UPDATE 제거로 campaign row 락 경합은 없앴지만, 이 리스너 자체가
+// 여전히 발급 성공마다 campaign_stock_shard 50개 행을 SUM()하는 조회를 새로 날리고 있었다 -
+// 2만 건 동시요청 부하테스트에서 주 발급 경로(재고 차감+INSERT)와 똑같은 HikariCP 커넥션 풀을
+// 두고 초당 수백 건씩 경쟁하는 추가 부하였다(부하테스트 담당자 Prometheus 실측 - 관리자
+// 대시보드가 이 캠페인의 SSE를 구독 중일 때 서버 부하가 30초 넘게 안 풀리는 것과 상관관계
+// 확인, FE #41도 같은 계열의 SSE 연결 폭주 문제를 다룸). 이 스냅샷은 애초에 "표시용"이라 발급
+// 1건마다 정확히 실시간일 필요는 없다 - 캠페인별로 최소 MIN_UPDATE_INTERVAL_MS 간격 안에서는
+// 추가 조회를 생략한다(그 사이의 진짜 최신값은 15초 주기 CampaignStockSnapshotReconciliationJob이
+// 결국 따라잡아준다). CAS(compareAndSet)로 "이번 갱신을 내가 맡을지"를 판단하므로 별도 락 없이
+// 안전하다 - 여러 스레드가 동시에 걸려도 정확히 하나만 통과한다(근사치 스로틀링이라 나머지가
+// 살짝 못 통과해도 무해함).
 @Component
 public class CampaignStockSnapshotListener {
+
+    private static final long MIN_UPDATE_INTERVAL_MS = 200;
 
     private final CampaignStockShardRepository campaignStockShardRepository;
     private final CampaignStockCache campaignStockCache;
     private final CampaignStockEmitterRegistry emitterRegistry;
+    private final ConcurrentHashMap<Long, AtomicLong> lastUpdatedAtMsByCampaign = new ConcurrentHashMap<>();
 
     public CampaignStockSnapshotListener(CampaignStockShardRepository campaignStockShardRepository,
                                          CampaignStockCache campaignStockCache,
@@ -41,8 +58,21 @@ public class CampaignStockSnapshotListener {
     @Async
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCouponIssued(CouponIssuedEvent event) {
+        if (!tryClaimUpdate(event.campaignId())) {
+            return;
+        }
         int remainingStock = campaignStockShardRepository.sumRemainingStock(event.campaignId());
         campaignStockCache.updateSnapshot(event.campaignId(), remainingStock);
         emitterRegistry.broadcast(event.campaignId(), remainingStock);
+    }
+
+    private boolean tryClaimUpdate(Long campaignId) {
+        long now = System.currentTimeMillis();
+        AtomicLong lastUpdatedAtMs = lastUpdatedAtMsByCampaign.computeIfAbsent(campaignId, id -> new AtomicLong(0));
+        long previous = lastUpdatedAtMs.get();
+        if (now - previous < MIN_UPDATE_INTERVAL_MS) {
+            return false;
+        }
+        return lastUpdatedAtMs.compareAndSet(previous, now);
     }
 }
