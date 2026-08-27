@@ -19,6 +19,13 @@ public interface CampaignStockShardRepository extends JpaRepository<CampaignStoc
     @Query("SELECT COALESCE(SUM(s.remainingStock), 0) FROM CampaignStockShard s WHERE s.campaignId = :campaignId")
     int sumRemainingStock(@Param("campaignId") Long campaignId);
 
+    // 2026-08-27 진단 카운터(ShardedStockReservationStrategy.totalCapacityByCampaign) 보정용 -
+    // 이 JVM이 재시작된 뒤 처음 다루는 캠페인은 샤드가 이미 DB에 있어(다른/이전 프로세스가 생성)
+    // createShards()를 안 타므로, 인메모리 캐패시티 맵에 값이 없을 수 있다. 그럴 때 DB에서 직접
+    // 합계를 읽어와 채운다.
+    @Query("SELECT COALESCE(SUM(s.capacity), 0) FROM CampaignStockShard s WHERE s.campaignId = :campaignId")
+    int sumCapacity(@Param("campaignId") Long campaignId);
+
     // REQUIRES_NEW인 이유: ShardedStockReservationStrategy.reserve()는 특정 샤드가 소진됐으면
     // 다음 샤드로 폴백한다 - 이 시도들을 전부 호출부(CouponIssuanceTransactionalOperations)의
     // 큰 트랜잭션 하나로 묶으면, 방문했지만 실패한 샤드 row의 잠금까지 트랜잭션이 끝날 때까지
