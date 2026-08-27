@@ -67,6 +67,8 @@ class CouponIssuanceServiceTest {
     private UserRepository userRepository;
     @Autowired
     private CouponIssueRepository couponIssueRepository;
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     @Test
     void 재고보다_많은_동시요청에도_초과발급_0건() throws InterruptedException {
@@ -175,6 +177,37 @@ class CouponIssuanceServiceTest {
         assertThat(second.couponIssue().getCouponCode()).isEqualTo(first.couponIssue().getCouponCode());
         assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
         assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isEqualTo(49);
+    }
+
+    // 2026-08-27: recoverFromInsertFailure() 수정 검증 - "이미 발급받은 유저가 다른
+    // idempotencyKey로 다시 요청"(예: 클라이언트 타임아웃 후 재시도)하는 진짜 경합 케이스에서,
+    // 이번 시도가 확보한 재고가 제대로 복원되는지 확인한다. (campaignId, userId)만으로 "이미
+    // 처리됨"을 판단했다면(수정 전 초안의 버그) 이 시도의 예약분이 영원히 안 풀려서 재고가
+    // 샌다 - stock이 9가 아니라 8로 남는지가 이 회귀의 신호다.
+    @Test
+    void 같은_유저가_다른_idempotencyKey로_재시도해도_두번째_시도의_예약분은_복원된다() {
+        int stock = 10;
+        Long campaignId = createCampaign(stock);
+        Long userId = createUsers(1).get(0);
+
+        IssueResult first = couponIssuanceService.issue(userId, campaignId, "retry-key-1");
+        // CouponIssuanceDuplicateGuard가 같은 (campaignId, userId)를 최소 MIN_HOLD(10초)만큼은
+        // release() 호출 이후에도 안 지우고 TTL만 줄인 채로 붙잡아둔다(의도된 설계 - 근접
+        // 중복요청 폭주 흡수용, CouponIssuanceDuplicateGuard.release() 참고). 이 테스트는 그
+        // 가드가 아니라 recoverFromInsertFailure()의 복원 로직 자체를 검증하려는 것이므로,
+        // "가드가 이미 완전히 풀린 뒤의 진짜 재시도" 상황을 흉내내기 위해 Redis 키를 직접 지운다
+        // (release()를 또 호출해봐야 MIN_HOLD 이내라 여전히 안 지워짐).
+        redisTemplate.delete("dup:" + campaignId + ":" + userId);
+        IssueResult second = couponIssuanceService.issue(userId, campaignId, "retry-key-2");
+
+        assertThat(first.status()).isEqualTo(IssueResult.Status.SUCCESS);
+        assertThat(second.status()).isEqualTo(IssueResult.Status.ALREADY_PROCESSED);
+        assertThat(second.couponIssue().getId()).isEqualTo(first.couponIssue().getId());
+        // 실제로 발급된 건 1건뿐이어야 하고,
+        assertThat(couponIssueRepository.countByCampaignId(campaignId)).isEqualTo(1);
+        // 재고는 첫 시도가 쓴 1개만 빠져야 한다 - 두 번째 시도가 확보했다가 실패한 예약분은
+        // 반드시 복원돼야 함(9가 아니라 8이면 재고 유실 회귀).
+        assertThat(campaignStockShardRepository.sumRemainingStock(campaignId)).isEqualTo(stock - 1);
     }
 
     private Long createCampaign(int stock) {
