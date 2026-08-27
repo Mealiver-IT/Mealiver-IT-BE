@@ -191,6 +191,14 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
                             campaignId, campaign.getRemainingStock());
                     createShards(campaignId, campaign.getRemainingStock());
                 }
+            } else {
+                // 2026-08-27 진단 카운터 보정(캠페인 1286 재현 - 진단 카운터가 전혀 안 찍힘):
+                // 이 JVM이 방금 재시작됐고, 이 캠페인의 샤드는 재시작 전에(또는 다른 인스턴스가)
+                // 이미 만들어둔 경우 여기로 들어온다 - createShards()를 안 타므로
+                // totalCapacityByCampaign이 끝까지 안 채워져 진단 카운터의 초과 검출 자체가
+                // 무력화된다(capacity=null이라 비교식이 평가조차 안 됨). DB에서 캐패시티 합계를
+                // 직접 읽어와 채워서 이 구멍을 막는다.
+                totalCapacityByCampaign.putIfAbsent(campaignId, shardRepository.sumCapacity(campaignId));
             }
             initializedCampaignIds.add(campaignId);
         }
