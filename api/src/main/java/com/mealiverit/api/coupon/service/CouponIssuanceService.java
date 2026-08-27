@@ -131,9 +131,21 @@ public class CouponIssuanceService {
                     campaignId, userId, cause.toString());
             return IssueResult.alreadyProcessed(ownAttempt.get());
         }
+        // 2026-08-27 추가 진단: 여기 도달했다는 건 이 시도 자신의 idempotencyKey로는 못 찾았다는
+        // 뜻이라 재고를 복원하는데, 그런데도 초과발급이 계속 재현되고 있어(부하테스트 담당자
+        // 재확인 - 캠페인 1283, 10036/10000) insertCouponIssue()가 실제로 얼마나/어떤 예외로
+        // 실패하고 있는지가 아직 안 보인다 - 이 분기 자체가 지금까지 로그를 하나도 안 남겼다.
+        log.warn("발급 INSERT 실패 - 이 시도 자신의 idempotencyKey로 커밋된 흔적 없음, 재고 복원 진행. "
+                        + "campaignId={}, userId={}, idempotencyKey={}, 예외 타입={}, 예외 메시지={}",
+                campaignId, userId, idempotencyKey, cause.getClass().getName(), cause.getMessage());
         compensateStockRollbackSafely(campaignId, userId, cause);
         return couponIssueRepository.findByCampaignIdAndUserId(campaignId, userId)
-                .map(IssueResult::alreadyProcessed)
+                .map(existing -> {
+                    log.warn("발급 INSERT 실패 후 같은 유저의 다른 시도 건을 찾아 성공 응답으로 대체함 - "
+                                    + "campaignId={}, userId={}, 기존 issueId={}",
+                            campaignId, userId, existing.getId());
+                    return IssueResult.alreadyProcessed(existing);
+                })
                 .orElseThrow(() -> cause);
     }
 
