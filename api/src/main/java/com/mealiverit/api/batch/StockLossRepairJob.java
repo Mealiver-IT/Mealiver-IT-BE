@@ -8,8 +8,11 @@ import com.mealiverit.api.verification.report.SlackNotifier;
 import com.mealiverit.entity.campaign.CampaignRepository;
 import com.mealiverit.entity.campaign.StockMismatchProjection;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import net.javacrumbs.shedlock.core.LockAssert;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;
@@ -43,6 +46,21 @@ import org.springframework.stereotype.Component;
 //      CLOSED를 대상에서 제외 - 아래 쿼리 주석 참고) 여기서 발견되는 불일치가 사실상 마지막
 //      기회다. 그래서 이 경로에서만, 캠페인당 정확히 한 번 Slack으로 알린다.
 //
+// 2026-08-27 실측(부하테스트 담당자 리포트, 캠페인 1284): repair()가 "부족(deficit)" 방향을
+// 발견하는 즉시 복구하던 게 오히려 초과발급을 일으키는 것으로 확인됐다. 2만 건 동시요청
+// 상황에서는 "재고는 이미 차감됐지만 coupon_issue INSERT는 아직 커밋 전"인 요청이 순간적으로
+// 수백~수천 건 떠 있을 수 있다(정상적인 처리 중 상태) - 하필 이 타이밍에 repair()가 캠페인을
+// 체크하면 "샤드 잔여 + 발급건수 < 총재고"로 보여서 영구 유실로 착각하고 그 차이만큼 재고를
+// 즉시 늘려버렸다. 그러면 그 자리를 다른 대기 요청이 또 가져가고, 원래 처리 중이던 요청도
+// 잠시 후 정상 커밋되면서 재고 1개에 발급 2건이 나온다(재동기화 잡의 진단 로그로 샤드 합계가
+// 60초 주기마다 2 -> 19 -> 41로 계속 늘어나는 게 실측됨 - 매 사이클 새로 "복구"를 반복한 것).
+//
+// 수정: 같은 캠페인의 부족이 "연속 두 번"(60초 간격) 관측돼야만 진짜 유실로 확정하고 복구한다.
+// 처리 중이던 요청들은 대부분 60초 안에 정상 커밋을 마쳐서 다음 주기엔 부족이 저절로 사라지고,
+// 진짜 영구 유실(예: HikariCP 풀 고갈로 보상 롤백 자체가 실패한 경우)은 스스로 안 없어지므로
+// 다음 주기에도 그대로 남아 확정된다. checkOnClose()는 이 유예를 적용하지 않는다 - 캠페인
+// 종료 후엔 "다음 주기"가 없어서(대상에서 제외됨) 그 시점이 사실상 마지막 기회이기 때문이다.
+//
 // @Transactional을 안 건 이유: 이 클래스가 하는 쓰기는 stockReservationStrategy.rollback()
 // 뿐인데, 그 내부(ShardedStockReservationStrategy)는 이미 REQUIRES_NEW로 샤드 하나하나를
 // 즉시 커밋한다. 메서드에 트랜잭션을 걸어봐야 감쌀 쓰기가 없고, 오히려
@@ -56,6 +74,12 @@ public class StockLossRepairJob {
     private final CampaignRepository campaignRepository;
     private final StockReservationStrategy stockReservationStrategy;
     private final SlackNotifier slackNotifier;
+
+    // repair()가 지난 주기에 "부족"을 관측했지만 아직 확정(2회 연속)은 안 된 캠페인 후보 집합.
+    // 매 repair() 호출마다 통째로 재구성된다(retainAll이 아니라 clear+addAll) - 이번 사이클에
+    // 부족이 사라진 캠페인은 자연스럽게 다음 집합에서 빠지고(처리 중이던 요청이 정상 커밋돼
+    // 해소됐다는 뜻), 이번에도 여전히 부족인 캠페인만 남아 확정·복구된다.
+    private final Set<Long> pendingDeficitCampaignIds = ConcurrentHashMap.newKeySet();
 
     public StockLossRepairJob(CampaignRepository campaignRepository,
                                StockReservationStrategy stockReservationStrategy,
@@ -77,12 +101,33 @@ public class StockLossRepairJob {
     }
 
     // 주기 검증 - findStockMismatches()가 CLOSED 캠페인을 이미 걸러주므로 OPEN/READY만 대상이다.
-    // 결과는 로그로만 남기고 Slack은 보내지 않는다(클래스 상단 주석 참고).
+    // 결과는 로그로만 남기고 Slack은 보내지 않는다(클래스 상단 주석 참고). 부족(deficit) 방향은
+    // 바로 복구하지 않고 "연속 두 번 관측"돼야 확정한다 - 클래스 상단 2026-08-27 주석 참고.
     public void repair() {
         List<StockMismatchProjection> mismatches = campaignRepository.findStockMismatches();
+        Set<Long> stillPending = new HashSet<>();
         for (StockMismatchProjection mismatch : mismatches) {
-            handleMismatch(mismatch, false);
+            Long campaignId = mismatch.getCampaignId();
+            int expectedRemaining = mismatch.getTotalStock() - mismatch.getIssuedCount();
+            int deficit = expectedRemaining - mismatch.getShardRemaining();
+            if (deficit > 0) {
+                if (pendingDeficitCampaignIds.contains(campaignId)) {
+                    // 지난 주기에도 부족이었고 이번에도 여전히 부족 - 처리 중이던 요청이었다면
+                    // 벌써 커밋돼서 해소됐어야 하므로, 진짜 유실로 확정하고 복구한다.
+                    repairDeficit(campaignId, deficit, false);
+                } else {
+                    // 이번이 첫 관측 - 아직 처리 중인 요청 때문일 수 있으니 이번 주기엔 손대지
+                    // 않고 다음 주기에도 지속되는지만 지켜본다.
+                    stillPending.add(campaignId);
+                    log.debug("재고 부족 최초 관측(다음 주기에도 지속되면 복구): campaignId={}, 추정 부족량={}",
+                            campaignId, deficit);
+                }
+            } else {
+                alertExcess(mismatch, false);
+            }
         }
+        pendingDeficitCampaignIds.clear();
+        pendingDeficitCampaignIds.addAll(stillPending);
         if (!mismatches.isEmpty()) {
             log.info("재고 유실 탐지·복구 완료: 대상 캠페인 {}건", mismatches.size());
         }
