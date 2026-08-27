@@ -4,12 +4,13 @@ import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.entity.coupon.entity.Coupon;
+import com.mealiverit.entity.coupon.entity.CouponIssue;
 import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
 import com.mealiverit.entity.coupon.repository.CouponRepository;
 import com.mealiverit.entity.user.MembershipTier;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 // 04_아키텍처.txt 5.1절 순서 그대로. reserve()/rollback()만 StockReservationStrategy 구현체에 따라
@@ -89,19 +90,51 @@ public class CouponIssuanceService {
             MembershipTier userTier = transactionalOperations.reserveStock(userId, campaignId);
 
             // 6) 락 없이 발급 기록만 INSERT. 실패하면(uk 제약 위반이든 그 외든) 5)에서 확정한 재고를
-            // 반드시 되돌려야 한다.
+            // 되돌려야 하지만 - 2026-08-27 실측 이후엔 "무조건 먼저 되돌리기" 전에 반드시
+            // recoverFromInsertFailure()에서 실제 커밋 여부부터 확인해야 한다(아래 주석 참고).
             try {
                 return transactionalOperations.insertCouponIssue(userId, campaignId, idempotencyKey, coupon, userTier);
-            } catch (DataIntegrityViolationException e) {
-                compensateStockRollbackSafely(campaignId, userId, e);
-                return transactionalOperations.recoverFromConflict(campaignId, userId, e);
             } catch (RuntimeException e) {
-                compensateStockRollbackSafely(campaignId, userId, e);
-                throw e;
+                return recoverFromInsertFailure(campaignId, userId, idempotencyKey, e);
             }
         } finally {
             duplicateGuard.release(campaignId, userId);
         }
+    }
+
+    // 2026-08-27 실측(race.js - 유저 20,000명이 전부 서로 다른 userId로 딱 1번씩만 요청하는
+    // 시나리오, 즉 uk_campaign_user 경합이 원천적으로 불가능한 조건): 10,000 재고 캠페인에서
+    // 10,261건이 발급되는 초과발급이 재현됐다. 원인은 insertCouponIssue()가 예외를 던져도
+    // "실제로는 이미 DB에 커밋된" 애매한 경우(ambiguous outcome - 극한 동시성에서 HikariCP
+    // 커넥션 문제 등으로 클라이언트(앱)만 실패로 오인)가 있는데, 예전 코드는 이 경우를 구분 안
+    // 하고 무조건 먼저 재고부터 복원했다 - 이미 정당하게 소비된 슬롯을 또 풀어줘서 다른 유저가
+    // 가져가버렸다(샤드 테이블 합계는 정확히 0/10000으로 맞아떨어지는데도 실제 발급 건수만
+    // 초과 - 재고 판단 로직 자체가 아니라 이 복원 순서가 원인이었음).
+    //
+    // 수정: 반드시 idempotencyKey로 먼저 "이 시도 자신"이 실제로 커밋됐는지 확인한다 -
+    // (campaignId, userId)만으로 확인하면 안 된다. 같은 유저가 다른 idempotencyKey로 진짜
+    // 재시도한 경우(예: 클라이언트 타임아웃 후 재시도)엔 그 유저의 기존 행이 "다른 시도"의
+    // 결과일 뿐이라, 이번 시도 자신이 확보한 재고는 그대로 새는 채 방치되면 안 된다(반대 방향
+    // 버그 - 재고 유실). 그래서:
+    //   1) 이번 idempotencyKey로 이미 커밋됐으면(ambiguous outcome) 이 시도 자체가 성공한
+    //      것이므로 재고를 복원하지 않고 그대로 성공 응답을 돌려준다.
+    //   2) 아니면 이번 시도가 확보한 재고는 진짜로 안 쓰였으므로 복원부터 하고, 그래도 같은
+    //      유저가 "다른" idempotencyKey로 이미 성공한 건이 있으면(진짜 동시 경합) 그 기존
+    //      건을 성공 응답으로 돌려준다 - 없으면 원래 예외를 그대로 던진다.
+    private IssueResult recoverFromInsertFailure(Long campaignId, Long userId, String idempotencyKey,
+                                                  RuntimeException cause) {
+        Optional<CouponIssue> ownAttempt = couponIssueRepository.findByIdempotencyKey(idempotencyKey);
+        if (ownAttempt.isPresent()) {
+            log.warn("발급 INSERT가 예외를 던졌지만 이번 시도 자신이 실제로는 이미 커밋되어 있음을 "
+                            + "확인함(ambiguous outcome로 추정) - 재고 복원 생략. "
+                            + "campaignId={}, userId={}, 원래 예외={}",
+                    campaignId, userId, cause.toString());
+            return IssueResult.alreadyProcessed(ownAttempt.get());
+        }
+        compensateStockRollbackSafely(campaignId, userId, cause);
+        return couponIssueRepository.findByCampaignIdAndUserId(campaignId, userId)
+                .map(IssueResult::alreadyProcessed)
+                .orElseThrow(() -> cause);
     }
 
     // 2026-08-22 실측(round-06, HikariCP 풀 고갈 상태): compensateStockRollback() 자체가 새
