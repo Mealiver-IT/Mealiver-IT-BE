@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,6 +64,18 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 짧은 구간에만 쓰인다.
     private final ConcurrentHashMap<Long, Object> shardInitLocks = new ConcurrentHashMap<>();
 
+    // 2026-08-27 진단용(캠페인 1285, 재고 10000/발급 10023): StockLossRepairJob·
+    // recoverFromInsertFailure() 양쪽 다 이번엔 전혀 개입하지 않았는데도 초과발급이 재현됐다 -
+    // coupon_issue INSERT는 반드시 이 클래스의 decreaseIfAvailable() 성공을 거쳐야만 나올 수 있는
+    // 유일한 경로(전수 조사함)라, "DB의 원자적 UPDATE가 실제로 총 캐패시티보다 몇 번 더
+    // 성공했는지"를 JVM 자체 카운터로 교차검증해야 한다. successCounters는 캠페인별 누적 성공
+    // 횟수, totalCapacityByCampaign은 샤드 생성 시점에 기록해둔 "이 캠페인이 원래 가져야 할
+    // 총량"이다 - 누적 성공이 이 값을 넘어서는 순간을 잡아내면 최소한 "DB UPDATE 자체가 정말
+    // 초과 성공했는지" vs "coupon_issue에 이 경로를 안 거친 다른 원인으로 행이 생겼는지"를
+    // 구분할 수 있다.
+    private final ConcurrentHashMap<Long, AtomicInteger> successCounters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Integer> totalCapacityByCampaign = new ConcurrentHashMap<>();
+
     // 2026-08-22 실측(Prometheus, coupon-duplicate-request-test.js): 샤드 10개로는 InnoDB row
     // lock wait가 100초 동안 36,652건, 누적 대기시간 16,190,778ms(건당 평균 442ms) 발생 - 락을
     // 오래 붙잡은 트랜잭션들이 HikariCP 커넥션(600개)을 그대로 물고 있어 풀이 완전히 고갈되고
@@ -104,10 +117,26 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         for (int i = 0; i < shardCount; i++) {
             int shardIndex = (start + i) % shardCount;
             if (shardRepository.decreaseIfAvailable(campaignId, shardIndex) > 0) {
+                recordSuccessAndDetectOvercapacity(campaignId, shardIndex);
                 return true;
             }
         }
         return false;
+    }
+
+    // 2026-08-27 진단용 - 클래스 상단 successCounters 주석 참고. decreaseIfAvailable()의 원자적
+    // UPDATE가 DB 차원에서 정말로 총 캐패시티를 넘겨 성공한 건지를, 별도의 DB 조회 없이 JVM
+    // 카운터만으로 실시간 검출한다. 정상이라면 이 로그는 절대 안 찍혀야 한다 - 찍힌다면
+    // decreaseIfAvailable() 자체의 원자성이 깨진 것이고, 안 찍히는데도 coupon_issue가 총량을
+    // 넘는다면 원인이 이 클래스 바깥(이 경로를 안 거치는 다른 INSERT 원인)에 있다는 뜻이다.
+    private void recordSuccessAndDetectOvercapacity(Long campaignId, int shardIndex) {
+        int count = successCounters.computeIfAbsent(campaignId, id -> new AtomicInteger()).incrementAndGet();
+        Integer capacity = totalCapacityByCampaign.get(campaignId);
+        if (capacity != null && count > capacity) {
+            log.error("[진단] decreaseIfAvailable 누적 성공 횟수가 총 캐패시티를 초과함 - "
+                            + "campaignId={}, shardIndex={}, 누적성공={}, 총캐패시티={}, thread={}",
+                    campaignId, shardIndex, count, capacity, Thread.currentThread().getName());
+        }
     }
 
     @Override
@@ -117,6 +146,12 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
         for (int i = 0; i < shardCount; i++) {
             int shardIndex = (start + i) % shardCount;
             if (shardRepository.increaseIfBelowCapacity(campaignId, shardIndex) > 0) {
+                // 2026-08-27 진단용 - 정당한 원복(보상)은 "누적 순사용량"에서 빼줘야, 정상적인
+                // 실패-재시도 churn을 successCounters의 오탐(허위 초과)으로 착각하지 않는다.
+                AtomicInteger counter = successCounters.get(campaignId);
+                if (counter != null) {
+                    counter.decrementAndGet();
+                }
                 return;
             }
         }
@@ -175,6 +210,10 @@ public class ShardedStockReservationStrategy implements StockReservationStrategy
     // 분리해 REQUIRES_NEW로 실행되게 했다 - 커넥션 왕복은 여전히 1회, 그 1회짜리 트랜잭션은
     // 바깥과 무관하게 즉시 커밋되어 락도 즉시 풀린다.
     private void createShards(Long campaignId, int totalToDistribute) {
+        // 2026-08-27 진단용 - 클래스 상단 successCounters 주석 참고. putIfAbsent인 이유: 지연
+        // 생성 폴백이 나중에 다시 호출되더라도(멱등 - 이미 초기화된 캠페인은 애초에 이 메서드까지
+        // 안 옴) 최초 총량만 유지한다.
+        totalCapacityByCampaign.putIfAbsent(campaignId, totalToDistribute);
         int base = totalToDistribute / shardCount;
         int remainder = totalToDistribute % shardCount;
         List<Object[]> batchArgs = new ArrayList<>(shardCount);
