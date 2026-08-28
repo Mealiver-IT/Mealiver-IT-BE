@@ -166,12 +166,6 @@ flowchart LR
 
 `StockReservationStrategy` 인터페이스로 재고 확보 로직(`reserve`/`rollback`)만 버전별로 분리하고, 멱등성·eligibility 체크·트랜잭션 경계·로깅 등 나머지는 전 버전 동일하게 유지해 버전 간 비교가 공정하도록 설계했습니다. 자세한 비교·근거는 [`03_버전사다리_실험설계.txt`](docs/planning/03_버전사다리_실험설계.txt), 설계 배경은 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
-**V4 채택 이후 실측으로 발견·수정한 초과발급 버그 2건** — "재고 샤딩 도입 = 끝"이 아니라, 관리자 대시보드의 정합성 검증 배치(7-7절)로 라이브 부하테스트 중 실제 초과발급을 직접 잡아내고 그 자리에서 고친 사례입니다.
-- **보상 롤백 순서 버그**: `CouponIssuanceService.issueNew()`가 재고 차감(`reserveStock`)과 발급 기록 INSERT(`insertCouponIssue`)를 별도 트랜잭션으로 분리하는데, INSERT가 실제로는 DB에 커밋됐지만 애플리케이션이 실패로 오판하는 경합 창에서 재고가 잘못 복원되던 문제. 재고 복원 순서를 뒤집어 수정.
-- **StockLossRepairJob 오판**: 재고 유실을 복구하는 배치가 아직 처리 중인 정상 요청을 유실로 잘못 판단해 재고를 중복으로 채워넣던 문제.
-
-두 건 다 `b_counter_mismatch.sql`(재고 카운터 vs 실제 이력 대조) 검증 쿼리가 실제로 위반을 잡아내면서 발견됐고, 이후 진단 카운터(샤드 원자적 UPDATE 성공 횟수 실시간 대조)를 추가해 재발 여부를 상시 관측합니다.
-
 <details>
 <summary><b>검토했지만 채택하지 않은 대안</b></summary>
 
@@ -309,8 +303,6 @@ public enum CouponStatus {
 | 유저 목록 (`/admin/users`) | ID·로그인ID·이름 조합 서버사이드 검색(100만 건 규모라 검색 전엔 전체 조회 안 함) |
 
 BE 쪽 대응 API: `GET/POST /api/admin/verification/*`(검증 배치 조회·수동실행), `POST/DELETE /api/admin/seed/dirty-data`(오염 데이터), `GET .../coupon-issues`, `.../coupon-issues/by-user/{userId}`, `POST /api/admin/coupons/{issueId}/revoke`(강제 회수), `GET /api/admin/users/search`.
-
-정합성 검증 결과 카드는 실제로 라이브 데모 가치가 있습니다 — 7-1절에 적은 두 초과발급 버그가 바로 이 화면에서 `COUNTER_MISMATCH` 위반으로 실측 발견됐습니다.
 
 ---
 
