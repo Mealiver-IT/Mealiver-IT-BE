@@ -24,6 +24,7 @@
    - [멤버십 등급 시스템](#7-4-멤버십-등급-시스템)
    - [정합성 자기검증](#7-5-정합성-자기검증)
    - [더미데이터 파이프라인](#7-6-더미데이터-파이프라인)
+   - [관리자 대시보드](#7-7-관리자-대시보드)
 
 ---
 
@@ -165,6 +166,12 @@ flowchart LR
 
 `StockReservationStrategy` 인터페이스로 재고 확보 로직(`reserve`/`rollback`)만 버전별로 분리하고, 멱등성·eligibility 체크·트랜잭션 경계·로깅 등 나머지는 전 버전 동일하게 유지해 버전 간 비교가 공정하도록 설계했습니다. 자세한 비교·근거는 [`03_버전사다리_실험설계.txt`](docs/planning/03_버전사다리_실험설계.txt), 설계 배경은 [`04_아키텍처.md`](docs/planning/04_아키텍처.txt) 4절 참고.
 
+**V4 채택 이후 실측으로 발견·수정한 초과발급 버그 2건** — "재고 샤딩 도입 = 끝"이 아니라, 관리자 대시보드의 정합성 검증 배치(7-7절)로 라이브 부하테스트 중 실제 초과발급을 직접 잡아내고 그 자리에서 고친 사례입니다.
+- **보상 롤백 순서 버그**: `CouponIssuanceService.issueNew()`가 재고 차감(`reserveStock`)과 발급 기록 INSERT(`insertCouponIssue`)를 별도 트랜잭션으로 분리하는데, INSERT가 실제로는 DB에 커밋됐지만 애플리케이션이 실패로 오판하는 경합 창에서 재고가 잘못 복원되던 문제. 재고 복원 순서를 뒤집어 수정.
+- **StockLossRepairJob 오판**: 재고 유실을 복구하는 배치가 아직 처리 중인 정상 요청을 유실로 잘못 판단해 재고를 중복으로 채워넣던 문제.
+
+두 건 다 `b_counter_mismatch.sql`(재고 카운터 vs 실제 이력 대조) 검증 쿼리가 실제로 위반을 잡아내면서 발견됐고, 이후 진단 카운터(샤드 원자적 UPDATE 성공 횟수 실시간 대조)를 추가해 재발 여부를 상시 관측합니다.
+
 <details>
 <summary><b>검토했지만 채택하지 않은 대안</b></summary>
 
@@ -287,6 +294,23 @@ public enum CouponStatus {
 ### 7-6. 더미데이터 파이프라인
 
 5단계 시더 체인(`UserSeedRunner→OrderSeedRunner→MembershipTierSeedRunner→CampaignSeedRunner→CouponIssueSeedRunner`)으로 유저 100만·오더 1,000만+·발급이력 300만 건 규모를 적재합니다. 청크 배치 INSERT(`rewriteBatchedStatements`)로 대량 적재하고, 캠페인 단위로 즉시 커밋해 중단돼도 이어서 재실행할 수 있습니다.
+
+---
+
+### 7-7. 관리자 대시보드
+
+`Mealiver-IT-FE`(`/admin`)에서 인증 없이(과제 평가범위 밖으로 확인됨, 12절 참고) 아래 기능을 실시간으로 조작·시연할 수 있습니다. 부하테스트 진행 중에도 그래프/카운트가 실시간으로 갱신되도록 만들어, 라이브 데모에서 "지금 무슨 일이 일어나고 있는지"를 화면으로 바로 보여주는 용도입니다.
+
+| 화면 | 기능 |
+|---|---|
+| 대시보드 (`/admin`) | 전체 캠페인/누적 발급/전체 유저 KPI, 진행중 캠페인별 실시간 재고 미니 카드(스파크라인), 일간/월간 정합성 검증 결과 요약 + "지금 검증 실행" 수동 트리거, 오염 데이터(검증쿼리 픽스처) 삽입/정리 |
+| 캠페인 관리 (`/admin/campaigns`) | 목록(오픈/마감 시각 포함) 조회·생성(오픈 예약시각 지정 가능)·수동 오픈/마감·삭제 |
+| 캠페인 상세 (`/admin/campaigns/:id`) | SSE 기반 실시간 재고 추이 차트(발급마다 갱신, 그래프 초기화 가능), 누적 발급 건수, 유저ID로 발급 건 조회 후 강제 회수(`markCanceled`) |
+| 유저 목록 (`/admin/users`) | ID·로그인ID·이름 조합 서버사이드 검색(100만 건 규모라 검색 전엔 전체 조회 안 함) |
+
+BE 쪽 대응 API: `GET/POST /api/admin/verification/*`(검증 배치 조회·수동실행), `POST/DELETE /api/admin/seed/dirty-data`(오염 데이터), `GET .../coupon-issues`, `.../coupon-issues/by-user/{userId}`, `POST /api/admin/coupons/{issueId}/revoke`(강제 회수), `GET /api/admin/users/search`.
+
+정합성 검증 결과 카드는 실제로 라이브 데모 가치가 있습니다 — 7-1절에 적은 두 초과발급 버그가 바로 이 화면에서 `COUNTER_MISMATCH` 위반으로 실측 발견됐습니다.
 
 ---
 
