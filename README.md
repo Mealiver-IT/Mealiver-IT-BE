@@ -6,28 +6,83 @@
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-blue)](https://www.mysql.com/)
 [![Redis](https://img.shields.io/badge/Redis-7.x-red)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-latest-blue)](https://www.docker.com/)
+[![Build](https://github.com/Mealiver-IT/Mealiver-IT-BE/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Mealiver-IT/Mealiver-IT-BE/actions/workflows/docker-publish.yml)
 
 ---
 
 ## 📌 목차
 
-1. [프로젝트 소개](#1-프로젝트-소개)
-2. [팀원 소개](#2-팀원-소개)
-3. [기술 스택](#3-기술-스택)
-4. [시스템 아키텍처](#4-시스템-아키텍처)
-5. [인프라 & 배포](#5-인프라--배포)
-6. [ERD](#6-erd)
-7. [핵심 기능](#7-핵심-기능)
-   - [동시성 제어 — 선착순 발급](#7-1-동시성-제어--선착순-발급)
-   - [쿠폰 상태 로직](#7-2-쿠폰-상태-로직)
-   - [Idempotency 설계](#7-3-idempotency-설계)
-   - [멤버십 등급 시스템](#7-4-멤버십-등급-시스템)
-   - [정합성 자기검증](#7-5-정합성-자기검증)
-   - [더미데이터 파이프라인](#7-6-더미데이터-파이프라인)
+1. [빠른 시작](#1-빠른-시작)
+2. [프로젝트 소개](#2-프로젝트-소개)
+3. [팀원 소개](#3-팀원-소개)
+4. [기술 스택](#4-기술-스택)
+5. [시스템 아키텍처](#5-시스템-아키텍처)
+6. [인프라 & 배포](#6-인프라--배포)
+7. [ERD](#7-erd)
+8. [핵심 기능](#8-핵심-기능)
+   - [동시성 제어 — 선착순 발급](#8-1-동시성-제어--선착순-발급)
+   - [쿠폰 상태 로직](#8-2-쿠폰-상태-로직)
+   - [Idempotency 설계](#8-3-idempotency-설계)
+   - [멤버십 등급 시스템](#8-4-멤버십-등급-시스템)
+   - [정합성 자기검증](#8-5-정합성-자기검증)
+   - [더미데이터 파이프라인](#8-6-더미데이터-파이프라인)
+   - [관리자 대시보드](#8-7-관리자-대시보드)
 
 ---
 
-## 1. 프로젝트 소개
+## 1. 빠른 시작
+
+### 사전 요구사항
+
+- Java 21, Maven Wrapper(`./mvnw`, 레포에 포함)
+- Node.js 18+
+- Docker (인프라 스택용)
+
+### 1) 인프라 (MySQL·Redis)
+
+공유 인프라 스택은 [`Mealiver-IT-Infra`](https://github.com/Mealiver-IT/Mealiver-IT-Infra) 레포의 docker-compose로 구성합니다.
+
+```bash
+git clone https://github.com/Mealiver-IT/Mealiver-IT-Infra.git
+cd Mealiver-IT-Infra
+docker compose up -d mysql redis
+```
+
+개인 로컬 개발용 `local` 프로필은 기본값으로 `localhost:3307`을 보므로(`api/src/main/resources/application-local.properties`), 위 compose를 그대로 쓸 경우 포트를 맞추거나(`docker compose`의 mysql 포트 매핑을 3307로 변경) `spring.datasource.url`을 직접 오버라이드하세요.
+
+### 2) 백엔드
+
+```bash
+git clone https://github.com/Mealiver-IT/Mealiver-IT-BE.git
+cd Mealiver-IT-BE
+./mvnw -o install -pl entity -DskipTests   # entity 모듈을 먼저 로컬 설치 (api가 참조)
+./mvnw -o -f api/pom.xml spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+팀 공유 서버(Tailscale)의 DB에 붙이려면 `-Dspring-boot.run.profiles=remote`와 함께 `DB_URL`/`DB_USER`/`DB_PASSWORD` 환경변수를 먼저 설정하세요.
+
+### 3) 프론트엔드
+
+```bash
+git clone https://github.com/Mealiver-IT/Mealiver-IT-FE.git
+cd Mealiver-IT-FE
+npm install
+npm run dev
+```
+
+- 소비자 화면: http://localhost:5173
+- 관리자 대시보드: http://localhost:5173/admin
+
+### 4) 부하테스트 (선택)
+
+```bash
+cd Mealiver-IT-BE/api/src/test/K6/phase1
+k6 run smoke-test.js
+```
+
+---
+
+## 2. 프로젝트 소개
 
 ### 배경
 
@@ -50,7 +105,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 2. 팀원 소개
+## 3. 팀원 소개
 
 **6인 · 4역할**로 구성되어 있습니다.
 
@@ -65,7 +120,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 3. 기술 스택
+## 4. 기술 스택
 
 ### Backend
 
@@ -92,13 +147,13 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 4. 시스템 아키텍처
+## 5. 시스템 아키텍처
 
 <img width="2656" height="1896" alt="시스템 아키텍처" src="https://github.com/user-attachments/assets/52eaf150-2997-4d98-b572-7bf0f6b87111" />
 
 ---
 
-## 5. 인프라 & 배포
+## 6. 인프라 & 배포
 
 ```
 로컬 개발 (local 프로필)
@@ -116,7 +171,7 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 6. ERD
+## 7. ERD
 
 <img width="1750" height="1550" alt="drawSQL-image-export-2026-08-14" src="https://github.com/user-attachments/assets/ad4d3b2e-d124-4447-865e-a6167297e1b7" />
 
@@ -135,12 +190,12 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 7. 핵심 기능
+## 8. 핵심 기능
 
 ---
 
 
-### 7-1. 동시성 제어 — 선착순 발급
+### 8-1. 동시성 제어 — 선착순 발급
 
 재고 초과 발급을 막기 위해 4단계 버전 사다리(V1~V4)로 동시성 제어 전략을 발전시켰습니다. 부하테스트(`coupon_mixed_5k_x4.js`)로 처리량 한계를 확인할 때마다 다음 버전을 도입하는 방식입니다.
 
@@ -182,7 +237,7 @@ flowchart LR
 
 ---
 
-### 7-2. 쿠폰 상태 로직
+### 8-2. 쿠폰 상태 로직
 
 `ISSUED → USED / CANCELED / EXPIRED`, 역행 불가 상태전이는 거부됩니다. `USED → ISSUED`(주문취소 시 본인 재사용 복귀)만 예외적으로 허용됩니다.
 
@@ -239,7 +294,7 @@ public enum CouponStatus {
 
 ---
 
-### 7-3. Idempotency 설계
+### 8-3. Idempotency 설계
 
 (`docs/planning/04_아키텍처.txt` 5절)
 
@@ -249,7 +304,7 @@ public enum CouponStatus {
 
 ---
 
-### 7-4. 멤버십 등급 시스템
+### 8-4. 멤버십 등급 시스템
 
 회원은 이등병(PRIVATE)·일병(PFC)·상병(CORPORAL)·병장(SERGEANT) 4단계 등급을 가지며, 완료 주문 수 기준으로 매월 1일 `MembershipTierBatchJob`이 자동 재산정합니다.
 
@@ -266,7 +321,7 @@ public enum CouponStatus {
 
 ---
 
-### 7-5. 정합성 자기검증
+### 8-5. 정합성 자기검증
 
 (`docs/planning/05_시스템설계.txt` 1절)
 
@@ -284,9 +339,24 @@ public enum CouponStatus {
 
 ---
 
-### 7-6. 더미데이터 파이프라인
+### 8-6. 더미데이터 파이프라인
 
 5단계 시더 체인(`UserSeedRunner→OrderSeedRunner→MembershipTierSeedRunner→CampaignSeedRunner→CouponIssueSeedRunner`)으로 유저 100만·오더 1,000만+·발급이력 300만 건 규모를 적재합니다. 청크 배치 INSERT(`rewriteBatchedStatements`)로 대량 적재하고, 캠페인 단위로 즉시 커밋해 중단돼도 이어서 재실행할 수 있습니다.
+
+---
+
+### 8-7. 관리자 대시보드
+
+`Mealiver-IT-FE`(`/admin`)에서 인증 없이(과제 평가범위 밖으로 확인됨, 12절 참고) 아래 기능을 실시간으로 조작·시연할 수 있습니다. 부하테스트 진행 중에도 그래프/카운트가 실시간으로 갱신되도록 만들어, 라이브 데모에서 "지금 무슨 일이 일어나고 있는지"를 화면으로 바로 보여주는 용도입니다.
+
+| 화면 | 기능 |
+|---|---|
+| 대시보드 (`/admin`) | 전체 캠페인/누적 발급/전체 유저 KPI, 진행중 캠페인별 실시간 재고 미니 카드(스파크라인), 일간/월간 정합성 검증 결과 요약 + "지금 검증 실행" 수동 트리거, 오염 데이터(검증쿼리 픽스처) 삽입/정리 |
+| 캠페인 관리 (`/admin/campaigns`) | 목록(오픈/마감 시각 포함) 조회·생성(오픈 예약시각 지정 가능)·수동 오픈/마감·삭제 |
+| 캠페인 상세 (`/admin/campaigns/:id`) | SSE 기반 실시간 재고 추이 차트(발급마다 갱신, 그래프 초기화 가능), 누적 발급 건수, 유저ID로 발급 건 조회 후 강제 회수(`markCanceled`) |
+| 유저 목록 (`/admin/users`) | ID·로그인ID·이름 조합 서버사이드 검색(100만 건 규모라 검색 전엔 전체 조회 안 함) |
+
+BE 쪽 대응 API: `GET/POST /api/admin/verification/*`(검증 배치 조회·수동실행), `POST/DELETE /api/admin/seed/dirty-data`(오염 데이터), `GET .../coupon-issues`, `.../coupon-issues/by-user/{userId}`, `POST /api/admin/coupons/{issueId}/revoke`(강제 회수), `GET /api/admin/users/search`.
 
 ---
 
