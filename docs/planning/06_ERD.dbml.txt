@@ -1,5 +1,9 @@
 // Mealiver-IT — 선착순 쿠폰 발급 시스템 ERD
 // 04_아키텍처.md 1절 도메인 모델 기준. dbdiagram.io 에 그대로 붙여넣기.
+// [2026-08-28 갱신] api/src/main/resources/db/migration/V1~V12 전체 반영 확인
+// (campaign_stock_shard, verification_result/report/report_check 테이블 추가,
+// campaign.campaign_type / coupon_state_log.reason / orders.coupon_issue_id 컬럼 추가).
+// Spring Batch/ShedLock 자체 인프라 테이블(V2, V3)은 도메인 ERD 범위 밖이라 미포함.
 
 Enum membership_tier {
   PRIVATE [note: '이등병 (기본값)']
@@ -27,6 +31,7 @@ Table orders {
   status varchar [not null, note: 'ENUM: COMPLETED, CANCELED, REFUNDED']
   ordered_at datetime [not null]
   completed_at datetime [note: '배달완료 시각. 계급 집계는 status=COMPLETED AND completed_at 기준 캘린더 월로 산정']
+  coupon_issue_id bigint [note: '[V8 추가] 적용된 쿠폰 발급 건. nullable(쿠폰 미적용 주문도 있음) — 주문취소 시 쿠폰 상태전이(ISSUED 복귀) 정합성 확인용']
   created_at datetime [not null, default: `now()`]
 
   indexes {
@@ -47,12 +52,25 @@ Table campaign {
   id bigint [pk, increment]
   name varchar [not null]
   total_stock int [not null, note: '최초 재고, 불변']
-  remaining_stock int [not null, note: '동시성 제어 대상 카운터']
+  remaining_stock int [not null, note: '[2026-08-20 V4 이후 의미 변경] 더 이상 재고 판단의 원본이 아님 — 진짜 재고는 campaign_stock_shard 합계이고, 이 컬럼은 관리자 CRUD·검증쿼리(b) 등 기존 코드가 계속 읽을 수 있도록 스냅샷 리스너/재동기화 잡이 그 합계를 사후 복사해두는 표시값']
   open_at datetime [note: '예약 오픈 (선택 확장)']
   close_at datetime
   status varchar [not null, note: 'ENUM: READY, OPEN, CLOSED']
   min_membership_tier membership_tier [note: 'NULL이면 전 회원 대상, 설정 시 회원 전용 쿠폰']
+  campaign_type varchar [not null, default: 'FCFS', note: '[V5, 2026-08-19 추가] ENUM: FCFS(선착순), MEMBERSHIP_BENEFIT(계급별 월간 혜택)']
   version bigint [not null, default: 0, note: '@Version, 낙관적 락 옵션용']
+}
+
+Table campaign_stock_shard {
+  id bigint [pk, increment]
+  campaign_id bigint [not null]
+  shard_index int [not null]
+  remaining_stock int [not null, note: '이 샤드 몫의 잔여 재고 — campaign.remaining_stock을 대체하는 진짜 재고 원본(V4, 재고 샤딩)']
+  capacity int [not null, note: '샤드 생성 시점 값으로 고정. sum(capacity)=campaign.total_stock 불변식']
+
+  indexes {
+    (campaign_id, shard_index) [unique, name: 'uk_campaign_shard']
+  }
 }
 
 Table coupon {
@@ -98,6 +116,7 @@ Table coupon_state_log {
   from_status varchar
   to_status varchar [not null]
   request_id varchar [not null, note: '상태변경 요청 idempotency key']
+  reason varchar [not null, default: 'UNKNOWN', note: '[V7 추가] 왜 상태가 바뀌었는지 사유. 기존 로우는 소급판정 불가라 UNKNOWN, 새 코드는 UNKNOWN 안 씀']
   created_at datetime [not null, default: `now()`]
 
   indexes {
@@ -106,9 +125,63 @@ Table coupon_state_log {
   }
 }
 
+// =========================================================
+// 정합성 검증 배치 결과 (05_시스템설계.txt 1.2절, ConsistencyVerificationJob)
+// job_execution_id는 Spring Batch 자체 테이블 BATCH_JOB_EXECUTION 참조 — 이 ERD엔 Spring Batch
+// 인프라 테이블(BATCH_JOB_EXECUTION 등)은 모델링하지 않으므로 Ref 없이 컬럼만 표기.
+// =========================================================
+
+Table verification_result {
+  id bigint [pk, increment]
+  job_execution_id bigint [not null, note: 'FK -> BATCH_JOB_EXECUTION.JOB_EXECUTION_ID (Spring Batch 인프라 테이블, 미모델링)']
+  check_type varchar [not null, note: '위반 검증쿼리 종류 (a_초과발급/b_카운터불일치/c1~c3/d_등급위반/e_등급-주문불일치)']
+  reference_id varchar [not null, note: '위반이 발견된 대상의 식별자(캠페인ID, 발급건ID 등)']
+  detail text [not null]
+  detected_at datetime [not null]
+
+  indexes {
+    job_execution_id [name: 'idx_verification_result_job']
+    check_type [name: 'idx_verification_result_check_type']
+  }
+}
+
+Table verification_report {
+  id bigint [pk, increment]
+  job_execution_id bigint [not null, note: 'FK -> BATCH_JOB_EXECUTION.JOB_EXECUTION_ID (미모델링)']
+  job_name varchar [not null]
+  started_at datetime
+  ended_at datetime
+  duration_ms bigint [not null, default: 0]
+  total_violation_count bigint [not null, default: 0]
+  status varchar [not null]
+  report_file_path varchar [note: 'Notion 리포트 링크 등']
+  created_at datetime [not null, default: `now()`]
+
+  indexes {
+    job_execution_id [unique, name: 'uk_verification_report_job_execution']
+    (job_name, created_at) [name: 'idx_verification_report_job_name_created']
+  }
+}
+
+Table verification_report_check {
+  id bigint [pk, increment]
+  verification_report_id bigint [not null]
+  check_type varchar [not null]
+  violation_count bigint [not null, default: 0]
+  created_at datetime [not null, default: `now()`]
+
+  indexes {
+    (verification_report_id, check_type) [unique, name: 'uk_report_check_type']
+    check_type [name: 'idx_report_check_type']
+  }
+}
+
 Ref: coupon.campaign_id > campaign.id
 Ref: coupon_issue.campaign_id > campaign.id
 Ref: coupon_issue.user_id > users.id
 Ref: coupon_state_log.coupon_issue_id > coupon_issue.id
 Ref: orders.user_id > users.id
+Ref: orders.coupon_issue_id > coupon_issue.id
 Ref: membership_tier_log.user_id > users.id
+Ref: campaign_stock_shard.campaign_id > campaign.id
+Ref: verification_report_check.verification_report_id > verification_report.id
