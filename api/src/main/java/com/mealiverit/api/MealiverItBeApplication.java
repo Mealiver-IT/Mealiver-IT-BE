@@ -3,8 +3,6 @@ package com.mealiverit.api;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.batch.autoconfigure.BatchJobLauncherAutoConfiguration;
-import org.springframework.boot.persistence.autoconfigure.EntityScan;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -13,8 +11,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 // @EnableRetry: 상태전이(markUsed/markCanceled) 낙관적 락 충돌 시 @Retryable 재시도가 동작하려면 필요.
 // @EnableAsync: CouponIssuedNotificationListener의 @Async 알림 발송이 동작하려면 필요.
 @SpringBootApplication(exclude = BatchJobLauncherAutoConfiguration.class)
-@EntityScan("com.mealiverit.entity")
-@EnableJpaRepositories("com.mealiverit.entity")
 @EnableScheduling
 @EnableRetry
 @EnableAsync

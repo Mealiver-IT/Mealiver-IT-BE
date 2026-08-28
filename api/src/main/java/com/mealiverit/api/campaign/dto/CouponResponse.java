@@ -1,7 +1,7 @@
 package com.mealiverit.api.campaign.dto;
 
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.coupon.entity.Coupon;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.coupon.entity.Coupon;
 import java.math.BigDecimal;
 
 public record CouponResponse(

@@ -1,6 +1,6 @@
 package com.mealiverit.api.batch;
 
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.user.MembershipTier;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;

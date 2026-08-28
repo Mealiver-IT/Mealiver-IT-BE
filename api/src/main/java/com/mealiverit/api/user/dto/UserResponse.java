@@ -1,8 +1,8 @@
 package com.mealiverit.api.user.dto;
 
 import com.mealiverit.api.common.config.PiiMasker;
-import com.mealiverit.entity.user.MembershipTier;
-import com.mealiverit.entity.user.User;
+import com.mealiverit.api.user.MembershipTier;
+import com.mealiverit.api.user.entity.User;
 
 import java.time.LocalDateTime;
 

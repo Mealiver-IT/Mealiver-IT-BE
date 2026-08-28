@@ -5,7 +5,7 @@ import com.mealiverit.api.coupon.dto.CouponIssueAdminResponse;
 import com.mealiverit.api.coupon.dto.CouponIssuePageResponse;
 import com.mealiverit.api.coupon.dto.CouponIssueResponse;
 import com.mealiverit.api.coupon.service.CouponIssueService;
-import com.mealiverit.entity.coupon.CouponStatus;
+import com.mealiverit.api.coupon.CouponStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;

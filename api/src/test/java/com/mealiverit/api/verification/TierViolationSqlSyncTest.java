@@ -2,7 +2,7 @@ package com.mealiverit.api.verification;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.user.MembershipTier;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;

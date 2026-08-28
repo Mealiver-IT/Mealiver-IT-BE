@@ -1,7 +1,7 @@
 package com.mealiverit.api.membership.dto;
 
-import com.mealiverit.entity.user.MembershipTier;
-import com.mealiverit.entity.user.User;
+import com.mealiverit.api.user.MembershipTier;
+import com.mealiverit.api.user.entity.User;
 
 import java.time.LocalDateTime;
 

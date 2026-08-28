@@ -1,7 +1,7 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.campaign.event.CampaignStatusChangedEvent;
-import com.mealiverit.entity.campaign.CampaignStatus;
+import com.mealiverit.api.campaign.CampaignStatus;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;

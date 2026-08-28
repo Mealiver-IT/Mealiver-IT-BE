@@ -5,8 +5,8 @@ import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.api.coupon.service.CouponIssueService;
 import com.mealiverit.api.order.dto.OrderCreateRequest;
 import com.mealiverit.api.order.dto.OrderResponse;
-import com.mealiverit.entity.order.Order;
-import com.mealiverit.entity.order.OrderRepository;
+import com.mealiverit.api.order.entity.Order;
+import com.mealiverit.api.order.repository.OrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

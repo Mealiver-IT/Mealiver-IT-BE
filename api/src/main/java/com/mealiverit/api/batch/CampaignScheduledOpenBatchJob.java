@@ -1,9 +1,9 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.campaign.event.CampaignStatusChangedEvent;
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.campaign.CampaignStatus;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.campaign.CampaignStatus;
 import net.javacrumbs.shedlock.core.LockAssert;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.slf4j.Logger;

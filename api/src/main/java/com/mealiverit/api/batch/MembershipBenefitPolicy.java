@@ -1,7 +1,7 @@
 package com.mealiverit.api.batch;
 
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.user.MembershipTier;
 
 import java.math.BigDecimal;
 import java.util.List;

@@ -9,9 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.mealiverit.api.campaign.dto.CampaignCreateRequest;
 import com.mealiverit.api.campaign.dto.CampaignStatusUpdateRequest;
-import com.mealiverit.entity.campaign.CampaignStatus;
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.campaign.CampaignStatus;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.user.MembershipTier;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

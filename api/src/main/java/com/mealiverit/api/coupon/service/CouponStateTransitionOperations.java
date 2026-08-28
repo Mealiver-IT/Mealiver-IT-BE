@@ -2,12 +2,12 @@ package com.mealiverit.api.coupon.service;
 
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
-import com.mealiverit.entity.coupon.CouponStatus;
-import com.mealiverit.entity.coupon.entity.CouponIssue;
-import com.mealiverit.entity.coupon.entity.CouponStateLog;
-import com.mealiverit.entity.coupon.repository.CouponIssueRepository;
-import com.mealiverit.entity.coupon.CouponStateChangeReason;
-import com.mealiverit.entity.coupon.repository.CouponStateLogRepository;
+import com.mealiverit.api.coupon.CouponStatus;
+import com.mealiverit.api.coupon.entity.CouponIssue;
+import com.mealiverit.api.coupon.entity.CouponStateLog;
+import com.mealiverit.api.coupon.repository.CouponIssueRepository;
+import com.mealiverit.api.coupon.CouponStateChangeReason;
+import com.mealiverit.api.coupon.repository.CouponStateLogRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 

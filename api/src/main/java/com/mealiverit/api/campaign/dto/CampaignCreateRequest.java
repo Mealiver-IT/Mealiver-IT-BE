@@ -1,7 +1,7 @@
 package com.mealiverit.api.campaign.dto;
 
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.user.MembershipTier;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

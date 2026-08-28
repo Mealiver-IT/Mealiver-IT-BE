@@ -1,7 +1,7 @@
 package com.mealiverit.api.user.service;
 
 import com.mealiverit.api.user.dto.UserResponse;
-import com.mealiverit.entity.user.UserRepository;
+import com.mealiverit.api.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

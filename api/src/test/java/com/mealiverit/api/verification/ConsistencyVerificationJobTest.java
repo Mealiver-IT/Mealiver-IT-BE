@@ -50,7 +50,7 @@ class ConsistencyVerificationJobTest {
     private JobLauncher jobLauncher;
 
     @Autowired
-    @Qualifier("consistencyVerificationJob")
+    @Qualifier("dailyConsistencyVerificationJob")
     private Job consistencyVerificationJob;
 
     @Autowired

@@ -1,6 +1,6 @@
 package com.mealiverit.api.campaign.dto;
 
-import com.mealiverit.entity.campaign.Campaign;
+import com.mealiverit.api.campaign.entity.Campaign;
 
 // 선착순 발급 현황 통계 조회(GET /api/admin/campaigns/{campaignId}/stats) 응답
 public record CampaignStatsResponse(

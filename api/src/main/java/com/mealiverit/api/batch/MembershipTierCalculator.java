@@ -1,6 +1,6 @@
 package com.mealiverit.api.batch;
 
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.user.MembershipTier;
 
 // 09_기획서.txt 6.2절 / 05_시스템설계.txt 1.1(f)의 계급 구간 임계값.
 // MembershipTierBatchJob과 정합성 검증 쿼리(f)가 서로 다른 로직을 쓰면 둘은 영원히 일치할 수 없으므로,

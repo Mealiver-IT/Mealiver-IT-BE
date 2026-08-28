@@ -1,15 +1,9 @@
 package com.mealiverit.api.seed;
 
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.user.MembershipTier;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.HashSet;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;

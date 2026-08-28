@@ -1,9 +1,9 @@
 package com.mealiverit.api.common.exception;
 
 import com.mealiverit.api.common.response.ErrorResponse;
-import com.mealiverit.entity.campaign.InvalidCampaignStateTransitionException;
-import com.mealiverit.entity.coupon.InvalidStateTransitionException;
-import com.mealiverit.entity.order.InvalidOrderStateTransitionException;
+import com.mealiverit.api.campaign.InvalidCampaignStateTransitionException;
+import com.mealiverit.api.coupon.InvalidStateTransitionException;
+import com.mealiverit.api.order.InvalidOrderStateTransitionException;
 import org.hibernate.AssertionFailure;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;

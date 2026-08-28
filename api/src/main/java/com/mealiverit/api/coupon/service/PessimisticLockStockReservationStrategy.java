@@ -1,6 +1,6 @@
 package com.mealiverit.api.coupon.service;
 
-import com.mealiverit.entity.campaign.CampaignRepository;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
 
 // V2 — DB 비관적 락, 원자 UPDATE 버전 (03_버전사다리_실험설계.txt 4절). 2026-08-20 재고 샤딩
 // (ShardedStockReservationStrategy) 도입으로 활성 전략 자리에서는 물러났다 - campaign row 하나로

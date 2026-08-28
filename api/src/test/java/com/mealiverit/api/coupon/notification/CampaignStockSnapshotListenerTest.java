@@ -11,7 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
-import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.api.campaign.repository.CampaignStockShardRepository;
 import org.junit.jupiter.api.Test;
 
 // 2026-08-27: 발급 성공마다 campaign_stock_shard 50개 행을 SUM()하던 걸, 캠페인별 최소 간격
