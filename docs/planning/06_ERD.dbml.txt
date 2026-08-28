@@ -1,9 +1,10 @@
 // Mealiver-IT — 선착순 쿠폰 발급 시스템 ERD
 // 04_아키텍처.md 1절 도메인 모델 기준. dbdiagram.io 에 그대로 붙여넣기.
 // [2026-08-28 갱신] api/src/main/resources/db/migration/V1~V12 전체 반영 확인
-// (campaign_stock_shard, verification_result/report/report_check 테이블 추가,
+// (campaign_stock_shard, verification_result/verification_report 테이블 추가,
 // campaign.campaign_type / coupon_state_log.reason / orders.coupon_issue_id 컬럼 추가).
 // Spring Batch/ShedLock 자체 인프라 테이블(V2, V3)은 도메인 ERD 범위 밖이라 미포함.
+// verification_report_check(V11)는 팀 결정으로 실사용 안 해서 미포함(코드에서도 미사용 확인).
 
 Enum membership_tier {
   PRIVATE [note: '이등병 (기본값)']
@@ -163,19 +164,6 @@ Table verification_report {
   }
 }
 
-Table verification_report_check {
-  id bigint [pk, increment]
-  verification_report_id bigint [not null]
-  check_type varchar [not null]
-  violation_count bigint [not null, default: 0]
-  created_at datetime [not null, default: `now()`]
-
-  indexes {
-    (verification_report_id, check_type) [unique, name: 'uk_report_check_type']
-    check_type [name: 'idx_report_check_type']
-  }
-}
-
 Ref: coupon.campaign_id > campaign.id
 Ref: coupon_issue.campaign_id > campaign.id
 Ref: coupon_issue.user_id > users.id
@@ -184,4 +172,3 @@ Ref: orders.user_id > users.id
 Ref: orders.coupon_issue_id > coupon_issue.id
 Ref: membership_tier_log.user_id > users.id
 Ref: campaign_stock_shard.campaign_id > campaign.id
-Ref: verification_report_check.verification_report_id > verification_report.id
