@@ -32,25 +32,14 @@
 
 ## 1. 빠른 시작
 
+> 프론트엔드까지 포함한 전체 시스템 실행 순서는 [조직 프로필 README](https://github.com/Mealiver-IT)를 참고하세요. 여기서는 이 레포(백엔드) 하나만 띄우는 방법을 다룹니다.
+
 ### 사전 요구사항
 
 - Java 21, Maven Wrapper(`./mvnw`, 레포에 포함)
-- Node.js 18+
-- Docker (인프라 스택용)
+- MySQL 8 / Redis 7 — [`Mealiver-IT-Infra`](https://github.com/Mealiver-IT/Mealiver-IT-Infra)의 docker-compose로 띄워두거나, 개인 로컬 인스턴스를 준비
 
-### 1) 인프라 (MySQL·Redis)
-
-공유 인프라 스택은 [`Mealiver-IT-Infra`](https://github.com/Mealiver-IT/Mealiver-IT-Infra) 레포의 docker-compose로 구성합니다.
-
-```bash
-git clone https://github.com/Mealiver-IT/Mealiver-IT-Infra.git
-cd Mealiver-IT-Infra
-docker compose up -d mysql redis
-```
-
-개인 로컬 개발용 `local` 프로필은 기본값으로 `localhost:3307`을 보므로(`api/src/main/resources/application-local.properties`), 위 compose를 그대로 쓸 경우 포트를 맞추거나(`docker compose`의 mysql 포트 매핑을 3307로 변경) `spring.datasource.url`을 직접 오버라이드하세요.
-
-### 2) 백엔드
+### 실행
 
 ```bash
 git clone https://github.com/Mealiver-IT/Mealiver-IT-BE.git
@@ -59,24 +48,14 @@ cd Mealiver-IT-BE
 ./mvnw -o -f api/pom.xml spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
+`local` 프로필은 기본값으로 `localhost:3307`을 봅니다(`api/src/main/resources/application-local.properties`) — 준비한 MySQL 포트를 맞추거나 `spring.datasource.url`을 오버라이드하세요.
+
 팀 공유 서버(Tailscale)의 DB에 붙이려면 `-Dspring-boot.run.profiles=remote`와 함께 `DB_URL`/`DB_USER`/`DB_PASSWORD` 환경변수를 먼저 설정하세요.
 
-### 3) 프론트엔드
+### 부하테스트 (선택)
 
 ```bash
-git clone https://github.com/Mealiver-IT/Mealiver-IT-FE.git
-cd Mealiver-IT-FE
-npm install
-npm run dev
-```
-
-- 소비자 화면: http://localhost:5173
-- 관리자 대시보드: http://localhost:5173/admin
-
-### 4) 부하테스트 (선택)
-
-```bash
-cd Mealiver-IT-BE/api/src/test/K6/phase1
+cd api/src/test/K6/phase1
 k6 run smoke-test.js
 ```
 
