@@ -30,7 +30,7 @@ public class UserAdminController {
     }
 
     // 유저 목록 화면 검색 - list()(전체 fetch, 100만 건 규모에서 수십 초) 대체용.
-    // 세 필터 다 비우면 빈 배열(검색 안 함).
+    // 세 필터 다 비워도 최신 id 순 상위 200건을 반환한다(초기 목록 표시용, UserAdminService 참고).
     @GetMapping("/api/admin/users/search")
     public ApiResponse<List<UserResponse>> search(
             @RequestParam(required = false, defaultValue = "") String id,
