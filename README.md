@@ -134,9 +134,9 @@ U+ 유레카 백엔드 과정 종합프로젝트 과제로 주어진 "대규모 
 
 ---
 
-## 7. ERD
 
-<img width="1750" height="1550" alt="drawSQL-image-export-2026-08-14" src="https://github.com/user-attachments/assets/ad4d3b2e-d124-4447-865e-a6167297e1b7" />
+## 7. ERD
+<img width="1663" height="2363" alt="drawSQL-image-export-2026-08-28 (1)" src="https://github.com/user-attachments/assets/8f7d48d4-7bf0-4d7c-864f-3c2819df9e0e" />
 
 ### 테이블 설명
 
