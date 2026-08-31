@@ -3,11 +3,8 @@ WORKDIR /app
 COPY mvnw .
 COPY .mvn .mvn
 COPY pom.xml .
-COPY entity/pom.xml entity/pom.xml
-COPY api/pom.xml api/pom.xml
 RUN ./mvnw dependency:go-offline -B
-COPY entity/src entity/src
-COPY api/src api/src
+COPY src src
 RUN ./mvnw package -DskipTests
 
 FROM eclipse-temurin:21-jre
@@ -18,6 +15,6 @@ WORKDIR /app
 # 직접 docker run으로 띄우는 경우(로컬 테스트 등)에도 같은 문제가 재현되지 않도록 이미지
 # 자체에도 기본값을 박아둔다 - compose의 환경변수가 있으면 그쪽이 우선 적용된다.
 ENV TZ=Asia/Seoul
-COPY --from=build /app/api/target/*.jar app.jar
+COPY --from=build /app/target/*.jar app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
