@@ -23,3 +23,7 @@ users_20000.json
 
 # graphify 지식 그래프 산출물 (로컬 분석용, 커밋 금지)
 graphify-out/
+
+# 로컬 검증 스크립트 DB 접속정보 및 실행 산출물 (커밋 금지)
+src/main/resources/sql/scripts/.env
+src/main/resources/sql/scripts/determinism_check/
