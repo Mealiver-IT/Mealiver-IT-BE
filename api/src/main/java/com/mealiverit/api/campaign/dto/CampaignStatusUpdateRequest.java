@@ -1,6 +1,6 @@
 package com.mealiverit.api.campaign.dto;
 
-import com.mealiverit.entity.campaign.CampaignStatus;
+import com.mealiverit.api.campaign.CampaignStatus;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDateTime;
 

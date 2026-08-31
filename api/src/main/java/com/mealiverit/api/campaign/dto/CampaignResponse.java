@@ -1,9 +1,9 @@
 package com.mealiverit.api.campaign.dto;
 
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignStatus;
-import com.mealiverit.entity.coupon.entity.Coupon;
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.CampaignStatus;
+import com.mealiverit.api.coupon.entity.Coupon;
+import com.mealiverit.api.user.MembershipTier;
 import java.time.LocalDateTime;
 
 public record CampaignResponse(

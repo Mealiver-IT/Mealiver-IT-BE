@@ -20,7 +20,6 @@
 	</properties>
 
 	<modules>
-		<module>entity</module>
 		<module>api</module>
 	</modules>
 

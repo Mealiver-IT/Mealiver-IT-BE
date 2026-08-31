@@ -2,7 +2,7 @@ package com.mealiverit.api.coupon.notification;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
-import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.api.campaign.repository.CampaignStockShardRepository;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.scheduling.annotation.Async;

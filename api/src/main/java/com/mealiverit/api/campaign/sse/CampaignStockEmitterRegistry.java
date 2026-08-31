@@ -2,7 +2,7 @@ package com.mealiverit.api.campaign.sse;
 
 import com.mealiverit.api.campaign.dto.CampaignStatusStreamEvent;
 import com.mealiverit.api.campaign.dto.CampaignStockStreamEvent;
-import com.mealiverit.entity.campaign.CampaignStatus;
+import com.mealiverit.api.campaign.CampaignStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

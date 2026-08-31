@@ -2,8 +2,8 @@ package com.mealiverit.api.batch;
 
 import com.mealiverit.api.campaign.cache.CampaignStockCache;
 import com.mealiverit.api.campaign.sse.CampaignStockEmitterRegistry;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.campaign.repository.CampaignStockShardRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

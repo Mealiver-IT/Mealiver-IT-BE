@@ -1,20 +1,17 @@
 package com.mealiverit.api.batch;
 
 import com.mealiverit.api.batch.MembershipBenefitPolicy.BenefitCoupon;
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.campaign.CampaignType;
-import com.mealiverit.entity.coupon.entity.Coupon;
-import com.mealiverit.entity.coupon.repository.CouponRepository;
-import com.mealiverit.entity.user.MembershipTier;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.campaign.CampaignType;
+import com.mealiverit.api.coupon.entity.Coupon;
+import com.mealiverit.api.coupon.repository.CouponRepository;
+import com.mealiverit.api.user.MembershipTier;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;

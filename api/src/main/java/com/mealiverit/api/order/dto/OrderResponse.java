@@ -1,7 +1,7 @@
 package com.mealiverit.api.order.dto;
 
-import com.mealiverit.entity.order.Order;
-import com.mealiverit.entity.order.OrderStatus;
+import com.mealiverit.api.order.entity.Order;
+import com.mealiverit.api.order.OrderStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

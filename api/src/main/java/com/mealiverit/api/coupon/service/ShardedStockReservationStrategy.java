@@ -1,8 +1,8 @@
 package com.mealiverit.api.coupon.service;
 
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.campaign.repository.CampaignStockShardRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;

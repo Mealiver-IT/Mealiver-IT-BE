@@ -1,8 +1,8 @@
 package com.mealiverit.api.coupon.dto;
 
-import com.mealiverit.entity.coupon.CouponStatus;
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.coupon.entity.CouponIssue;
+import com.mealiverit.api.coupon.CouponStatus;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.coupon.entity.CouponIssue;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

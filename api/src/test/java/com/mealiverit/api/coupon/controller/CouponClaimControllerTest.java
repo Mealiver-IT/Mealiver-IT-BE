@@ -4,14 +4,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.coupon.DiscountType;
-import com.mealiverit.entity.coupon.entity.Coupon;
-import com.mealiverit.entity.coupon.repository.CouponRepository;
-import com.mealiverit.entity.user.MembershipTier;
-import com.mealiverit.entity.user.User;
-import com.mealiverit.entity.user.UserRepository;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.coupon.DiscountType;
+import com.mealiverit.api.coupon.entity.Coupon;
+import com.mealiverit.api.coupon.repository.CouponRepository;
+import com.mealiverit.api.user.MembershipTier;
+import com.mealiverit.api.user.entity.User;
+import com.mealiverit.api.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;

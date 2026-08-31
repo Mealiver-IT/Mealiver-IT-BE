@@ -2,9 +2,9 @@ package com.mealiverit.api.coupon.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.mealiverit.entity.campaign.Campaign;
-import com.mealiverit.entity.campaign.CampaignRepository;
-import com.mealiverit.entity.campaign.CampaignStockShardRepository;
+import com.mealiverit.api.campaign.entity.Campaign;
+import com.mealiverit.api.campaign.repository.CampaignRepository;
+import com.mealiverit.api.campaign.repository.CampaignStockShardRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
