@@ -43,6 +43,7 @@ public enum ErrorCode {
     VERIFICATION_BATCH_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "이 서버는 검증 배치가 비활성화되어 있습니다 (app.consistency-verification.enabled=true로 재시작 필요)."),
     VERIFICATION_ALREADY_RUNNING(HttpStatus.CONFLICT, "검증 배치가 이미 실행 중입니다."),
     VERIFICATION_START_FAILED(HttpStatus.CONFLICT, "검증 배치를 시작하지 못했습니다."),
+    DETERMINISM_CHECK_DISABLED(HttpStatus.SERVICE_UNAVAILABLE, "이 서버는 결정론성 체크가 비활성화되어 있습니다 (app.determinism-check.enabled=true로 재시작 필요)."),
 
     ;
 
