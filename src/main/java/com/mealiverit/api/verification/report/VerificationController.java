@@ -3,6 +3,7 @@ package com.mealiverit.api.verification.report;
 import com.mealiverit.api.common.exception.BusinessException;
 import com.mealiverit.api.common.exception.ErrorCode;
 import com.mealiverit.api.common.response.ApiResponse;
+import com.mealiverit.api.verification.SqlDeterminismCheckJob;
 import com.mealiverit.api.verification.report.VerificationReportRepository.LatestReport;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -46,6 +47,7 @@ public class VerificationController {
     private final Optional<JobOperator> jobOperator;
     private final Optional<Job> dailyConsistencyVerificationJob;
     private final Optional<Job> tierOrdersMismatchJob;
+    private final Optional<SqlDeterminismCheckJob> sqlDeterminismCheckJob;
 
     public VerificationController(
             VerificationReportRepository verificationReportRepository,
@@ -53,7 +55,8 @@ public class VerificationController {
             JobCheckTypeResolver jobCheckTypeResolver,
             Optional<JobOperator> jobOperator,
             @Qualifier("dailyConsistencyVerificationJob") Optional<Job> dailyConsistencyVerificationJob,
-            @Qualifier("tierOrdersMismatchJob") Optional<Job> tierOrdersMismatchJob
+            @Qualifier("tierOrdersMismatchJob") Optional<Job> tierOrdersMismatchJob,
+            Optional<SqlDeterminismCheckJob> sqlDeterminismCheckJob
     ) {
         this.verificationReportRepository = verificationReportRepository;
         this.anomalyReportRepository = anomalyReportRepository;
@@ -61,6 +64,7 @@ public class VerificationController {
         this.jobOperator = jobOperator;
         this.dailyConsistencyVerificationJob = dailyConsistencyVerificationJob;
         this.tierOrdersMismatchJob = tierOrdersMismatchJob;
+        this.sqlDeterminismCheckJob = sqlDeterminismCheckJob;
     }
 
     @GetMapping("/api/admin/verification/latest")
@@ -91,6 +95,17 @@ public class VerificationController {
                 .addLocalDateTime("runAt", LocalDateTime.now())
                 .toJobParameters();
         return startJob(tierOrdersMismatchJob, jobParameters);
+    }
+
+    // SqlDeterminismCheckJob은 Spring Batch가 아니라 평범한 @Component(NamedParameterJdbcTemplate로
+    // 쿼리 7개를 두 번씩 실행 + 해시 비교)라 JobOperator/JobParameters가 필요 없다 - 요청 스레드에서
+    // 바로 실행하고 결과를 동기 응답으로 돌려준다. 매일 새벽 3:15 스케줄과 별개로, 데모/확인 목적으로
+    // 그 결과를 하루 기다리지 않고 바로 보고 싶을 때 쓴다.
+    @PostMapping("/api/admin/verification/run-determinism-check")
+    public ApiResponse<SqlDeterminismCheckJob.Result> runDeterminismCheck() {
+        SqlDeterminismCheckJob job = sqlDeterminismCheckJob
+                .orElseThrow(() -> new BusinessException(ErrorCode.DETERMINISM_CHECK_DISABLED));
+        return ApiResponse.success(job.run());
     }
 
     private ApiResponse<Map<String, Object>> startJob(Optional<Job> job, JobParameters jobParameters) {

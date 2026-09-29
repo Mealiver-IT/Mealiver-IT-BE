@@ -83,9 +83,30 @@ VALIDATION_DIR="$SCRIPT_DIR/../verification"
 OUTPUT_DIR="$SCRIPT_DIR/determinism_check"
 mkdir -p "$OUTPUT_DIR"
 
+# e_tier_orders_mismatch.sql만 :월시작/:월종료 named parameter를 쓴다(MembershipTierBatchJob과
+# 동일하게 "지난 달" 기준 - NOW() 자체는 안 쓰지만 실행 시점에 대상 월을 정해야 하는 값이라
+# 결정론성 규칙 위반은 아니다: 같은 실행 시점 안에서 두 번 다 같은 값을 넣으므로 재실행 동일성엔
+# 영향 없음). 이 파일만 실제 값으로 치환한 임시 사본을 만들어서 돌린다 - 원본 sql/verification/
+# 폴더는 절대 건드리지 않는다(다른 실행 경로들이 :월시작/:월종료 원문을 그대로 기대함).
+MONTH_START=$(date -d "$(date +%Y-%m-01) -1 month" +"%Y-%m-01 00:00:00")
+MONTH_END=$(date +"%Y-%m-01 00:00:00")
+echo "대상 월(e_tier_orders_mismatch.sql): [$MONTH_START, $MONTH_END)"
+echo ""
+
+RESOLVED_DIR="$OUTPUT_DIR/resolved_sql"
+mkdir -p "$RESOLVED_DIR"
+for qfile in "$VALIDATION_DIR"/*.sql; do
+  name=$(basename "$qfile")
+  if [ "$name" == "e_tier_orders_mismatch.sql" ]; then
+    sed "s/:월시작/'${MONTH_START}'/; s/:월종료/'${MONTH_END}'/" "$qfile" > "$RESOLVED_DIR/$name"
+  else
+    cp "$qfile" "$RESOLVED_DIR/$name"
+  fi
+done
+
 FAIL=0   # 하나라도 실패하면 1로 바꿀 변수
 
-for qfile in "$VALIDATION_DIR"/*.sql; do
+for qfile in "$RESOLVED_DIR"/*.sql; do
   name=$(basename "$qfile" .sql)   # 예: query_a_stock_overflow.sql → query_a_stock_overflow
 
   # 같은 쿼리를 2번 실행해서 각각 정렬 후 저장
